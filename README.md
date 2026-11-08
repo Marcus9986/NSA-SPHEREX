@@ -12,6 +12,7 @@ FastAPI + Python 3.15
 ## Plan
 
 Mockup Design with Figma
+
 <img width="1512px" height="982px" alt="image" src="public/mockups/user-interface.png" />
 
 ### Features
