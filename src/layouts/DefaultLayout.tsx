@@ -43,7 +43,7 @@ export default function DefaultLayout({
 
                         <Separator className="resize-handle" />
 
-                        <Panel disabled defaultSize="70px" className="panel playback-panel">
+                        <Panel disabled defaultSize="120px" minSize="120px" maxSize="120px" className="panel playback-panel">
                             <PlaybackPanel />
                         </Panel>
                     </Group>
