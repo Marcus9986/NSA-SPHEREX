@@ -1,0 +1,611 @@
+.pb {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    background: var(--bg);
+    overflow: hidden;
+    font-size: 11px;
+    line-height: 1.2;
+    color: var(--text);
+    user-select: none;
+}
+
+/* -- Timeline -- */
+
+/* Wide side padding keeps the range brackets at the first/last frame well away
+   from the panel resize handles, which grab clicks near the panel edges. */
+.pb-timeline {
+    flex: 0 0 34px;
+    padding: 0 40px;
+    background: rgba(0, 0, 0, 0.35);
+    border-bottom: var(--border-size) solid var(--border-color);
+    cursor: pointer;
+    outline: none;
+    touch-action: none;
+}
+
+.pb-timeline:focus-visible {
+    box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.8);
+}
+
+.pb-track {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+.pb-message {
+    position: absolute;
+    inset: 0 -40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 16px;
+    text-align: center;
+    color: #cbd5e1;
+}
+
+/* Thin coloured strip along the top: one colour per season of visits. */
+.pb-band {
+    position: absolute;
+    top: 0;
+    height: 2px;
+    border-radius: 1px;
+    opacity: 0.85;
+}
+
+.pb-tick {
+    position: absolute;
+    bottom: 0;
+    width: 1px;
+    height: 5px;
+    background: rgba(148, 163, 184, 0.35);
+}
+
+.pb-tick-labelled {
+    height: 9px;
+    background: rgba(148, 163, 184, 0.7);
+}
+
+.pb-tick span {
+    position: absolute;
+    bottom: 11px;
+    left: 0;
+    transform: translateX(-50%);
+    color: #94a3b8;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Frames outside the loop range are greyed out. */
+.pb-dim {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: rgba(17, 24, 39, 0.72);
+    pointer-events: none;
+}
+
+/* White bracket handles marking the loop range. */
+/* Range brackets get a wide grab area and sit above the playhead, so they can be
+   dragged even when the playhead is on the same frame. */
+.pb-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 18px;
+    z-index: 3;
+    cursor: ew-resize;
+    touch-action: none;
+}
+
+.pb-handle:hover::before,
+.pb-handle-dragging::before {
+    border-color: #93c5fd;
+    box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.35);
+}
+
+.pb-handle::before {
+    content: '';
+    position: absolute;
+    top: 5px;
+    bottom: 2px;
+    width: 5px;
+    border: 2px solid #f8fafc;
+}
+
+/* Each bracket sits 11px out from its frame so it clears that frame's number. */
+.pb-handle-start {
+    transform: translateX(-29px);
+}
+
+.pb-handle-start::before {
+    right: 0;
+    border-right: none;
+    border-radius: 3px 0 0 3px;
+}
+
+.pb-handle-end {
+    transform: translateX(11px);
+}
+
+.pb-handle-end::before {
+    left: 0;
+    border-left: none;
+    border-radius: 0 3px 3px 0;
+}
+
+.pb-playhead {
+    position: absolute;
+    top: 3px;
+    bottom: 0;
+    width: 2px;
+    transform: translateX(-50%);
+    background: var(--nasa-red);
+    pointer-events: none;
+    z-index: 2;
+}
+
+.pb-playhead-label {
+    position: absolute;
+    top: 3px;
+    left: 50%;
+    transform: translateX(-50%);
+    min-width: 22px;
+    padding: 2px 6px;
+    box-sizing: border-box;
+    border-radius: 999px;
+    background: var(--nasa-red);
+    color: #fff;
+    font-weight: 700;
+    text-align: center;
+    pointer-events: auto;
+    cursor: grab;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Hovering or dragging the marker: the bubble grows and glows, and the line brightens. */
+.pb-playhead:has(.pb-playhead-label:hover),
+.pb-playhead-dragging {
+    box-shadow: 0 0 6px 1px rgba(228, 0, 43, 0.7);
+}
+
+.pb-playhead-label:hover,
+.pb-playhead-dragging .pb-playhead-label {
+    transform: translateX(-50%) scale(1.15);
+    box-shadow: 0 0 0 2px #fff, 0 0 10px 2px rgba(228, 0, 43, 0.6);
+}
+
+.pb-playhead-dragging .pb-playhead-label {
+    cursor: grabbing;
+}
+
+.pb-playhead-label {
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.pb-playhead-loading {
+    animation: pb-pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes pb-pulse {
+    50% { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* Hovering or dragging the marker: the bubble grows and glows, and the line brightens. */
+.pb-playhead:has(.pb-playhead-label:hover),
+.pb-playhead-dragging {
+    box-shadow: 0 0 6px 1px rgba(228, 0, 43, 0.7);
+}
+
+.pb-playhead-label:hover,
+.pb-playhead-dragging .pb-playhead-label {
+    transform: translateX(-50%) scale(1.15);
+    box-shadow: 0 0 0 2px #fff, 0 0 10px 2px rgba(228, 0, 43, 0.6);
+}
+
+.pb-playhead-dragging .pb-playhead-label {
+    cursor: grabbing;
+}
+
+.pb-playhead-label {
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.pb-playhead-loading { animation: none; }
+}
+
+/* -- Controls row -- */
+
+.pb-controls {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+    padding: 0 16px;
+}
+
+.pb-box {
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    box-sizing: border-box;
+    border: 1px solid #475569;
+    border-radius: 4px;
+    background: #0f172a;
+    overflow: hidden;
+    flex: 0 0 auto;
+}
+
+.pb-box:focus-within {
+    border-color: rgba(96, 165, 250, 0.8);
+}
+
+.pb-box input,
+.pb-box select {
+    height: 100%;
+    box-sizing: border-box;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: #f8fafc;
+    font: 11px var(--mono);
+    text-align: center;
+}
+
+.pb-box input[type='number'] {
+    width: 46px;
+    padding: 0 2px;
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+.pb-box input[type='number']::-webkit-inner-spin-button,
+.pb-box input[type='number']::-webkit-outer-spin-button {
+    appearance: none;
+    margin: 0;
+}
+
+.pb-box select {
+    padding: 0 4px;
+    cursor: pointer;
+}
+
+.pb-box select option {
+    background: #0f172a;
+    color: #f8fafc;
+}
+
+.pb-box-suffix {
+    padding-right: 8px;
+    color: #64748b;
+    font-family: var(--mono);
+}
+
+.pb-box-label {
+    display: inline-flex;
+    align-items: center;
+    height: 100%;
+    padding: 0 8px;
+    background: rgba(148, 163, 184, 0.18);
+    color: #e2e8f0;
+    white-space: nowrap;
+}
+
+.pb-range .pb-box-label {
+    border-inline: 1px solid #475569;
+}
+
+.pb-speed .pb-box-label {
+    border-right: 1px solid #475569;
+}
+
+.pb-transport {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+}
+
+.pb-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 28px;
+    padding: 0;
+    box-sizing: border-box;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: #f8fafc;
+    cursor: pointer;
+    flex: 0 0 auto;
+}
+
+.pb-button:hover:not(:disabled) {
+    background: rgba(148, 163, 184, 0.15);
+}
+
+.pb-button:focus-visible {
+    outline: none;
+    border-color: rgba(96, 165, 250, 0.8);
+}
+
+.pb-button:disabled,
+.pb-button-disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.pb-button-play svg {
+    width: 22px;
+    height: 22px;
+}
+
+/* Loop is off by default look; when on, tint it. */
+.pb-button-on {
+    color: #93c5fd;
+    background: rgba(59, 130, 246, 0.18);
+}
+
+/* -- Status row -- */
+
+.pb-status {
+    flex: 0 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+    padding: 0 16px;
+    border-top: 1px solid rgba(148, 163, 184, 0.15);
+    white-space: nowrap;
+}
+
+.pb-frame-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.pb-frame-info strong {
+    color: #f8fafc;
+    font-weight: 600;
+}
+
+.pb-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    margin-right: 4px;
+    border-radius: 50%;
+}
+
+.pb-loading {
+    color: #93c5fd;
+}
+
+.pb-filter {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex: 0 0 auto;
+}
+
+/* -- Match wavelength box (controls row) -- */
+
+.pb-match-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 100%;
+    padding: 0 10px;
+    margin-right: 4px;
+    border: none;
+    background: rgba(148, 163, 184, 0.18);
+    color: #e2e8f0;
+    font: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.pb-match-toggle:hover:not(:disabled) {
+    background: rgba(148, 163, 184, 0.28);
+}
+
+.pb-match-toggle:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.9);
+}
+
+.pb-match-toggle:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Little indicator light: grey when off, glowing blue when on. */
+.pb-match-light {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #475569;
+}
+
+.pb-match-on {
+    border-color: rgba(96, 165, 250, 0.8);
+}
+
+.pb-match-on .pb-match-toggle {
+    background: rgba(37, 99, 235, 0.35);
+    color: #fff;
+}
+
+.pb-match-on .pb-match-light {
+    background: #60a5fa;
+    box-shadow: 0 0 6px 1px rgba(96, 165, 250, 0.8);
+}
+
+/* Editable parts of the box (detector, wavelength, tolerance) get a lighter fill and
+   bright text, and turn blue on hover, with no outline of their own. Read-only text
+   (range ends, units) stays flat and dim. */
+.pb-box select.pb-detector,
+.pb-box select.pb-tolerance,
+.pb-stepper {
+    /* Fill the full height of the bar, like the Match Wavelength toggle. */
+    height: 100%;
+    box-sizing: border-box;
+    border: none;
+    border-radius: 0;
+    background: rgba(148, 163, 184, 0.22);
+    color: #fff;
+    transition: background 0.1s ease;
+}
+
+.pb-box select.pb-detector:hover:not(:disabled),
+.pb-box select.pb-tolerance:hover:not(:disabled),
+.pb-match-on .pb-stepper:hover {
+    background: rgba(96, 165, 250, 0.35);
+}
+
+.pb-box select.pb-detector:focus-visible,
+.pb-box select.pb-tolerance:focus-visible,
+.pb-stepper:focus-within {
+    background: rgba(96, 165, 250, 0.35);
+}
+
+/* Narrow, so the closed detector picker shows only the short name ("D1"); the open
+   list shows each detector's range and image count. */
+.pb-box select.pb-detector {
+    width: 48px;
+    padding: 0 0 0 5px;
+    text-align: left;
+}
+
+.pb-box select.pb-tolerance {
+    padding: 0 4px;
+}
+
+/* Ends of the wavelength range, either side of the selected wavelength. Same font
+   as the wavelength, dimmer, so the three read as one "min [value] max" group. */
+.pb-bound {
+    padding: 0 3px;
+    color: #94a3b8;
+    font: 11px var(--mono);
+    white-space: nowrap;
+}
+
+/* "≤" signs between the range ends and the selected wavelength. */
+.pb-ineq {
+    padding: 0 3px;
+    color: #94a3b8;
+    font: 12px var(--mono);
+}
+
+.pb-match:not(.pb-match-on) .pb-ineq,
+.pb-match:not(.pb-match-on) .pb-bound {
+    opacity: 0.4;
+}
+
+.pb-stepper {
+    display: inline-flex;
+    align-items: stretch;
+    overflow: hidden;
+}
+
+.pb-match:not(.pb-match-on) .pb-stepper {
+    opacity: 0.45;
+}
+
+.pb-box .pb-wavelength {
+    width: 50px;
+    padding: 0 3px 0 5px;
+    text-align: right;
+    cursor: ns-resize;
+}
+
+/* Two small stacked arrows: next longer / next shorter wavelength. */
+.pb-stepper-buttons {
+    display: flex;
+    flex-direction: column;
+}
+
+.pb-stepper-buttons button {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #e2e8f0;
+    cursor: pointer;
+}
+
+.pb-stepper-buttons button:hover:not(:disabled) {
+    background: rgba(96, 165, 250, 0.45);
+    color: #fff;
+}
+
+.pb-stepper-buttons button:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.pb-box-unit {
+    padding: 0 5px 0 0;
+    color: #64748b;
+    white-space: nowrap;
+}
+
+.pb-box input:disabled,
+.pb-box select:disabled,
+.pb-match:not(.pb-match-on) .pb-box-unit {
+    opacity: 0.4;
+}
+
+.pb-count {
+    color: #64748b;
+}
+
+/* Download progress along the bottom of the timeline: a dark track for frames not yet
+   downloaded, with bright green segments for frames that are ready. */
+.pb-buffer-track,
+.pb-cached {
+    position: absolute;
+    bottom: 0;
+    height: 2px;
+    border-radius: 1px;
+}
+
+.pb-buffer-track {
+    left: 0;
+    right: 0;
+    background: rgba(148, 163, 184, 0.18);
+}
+
+.pb-cached {
+    background: #4ade80;
+    box-shadow: 0 0 3px rgba(74, 222, 128, 0.35);
+    pointer-events: none;
+}
+
+.pb-preload {
+    margin-left: 6px;
+    padding-left: 8px;
+    border-left: 1px solid rgba(148, 163, 184, 0.25);
+    color: #64748b;
+    font-variant-numeric: tabular-nums;
+}
+
+.pb-preload-busy {
+    color: #4ade80;
+}

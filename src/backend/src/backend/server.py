@@ -1,4 +1,6 @@
 import math
+import os
+import random
 import threading
 import time
 import urllib.error
@@ -14,7 +16,7 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.time import Time
-from astropy.utils.data import conf, download_file
+from astropy.utils.data import cache_contents, clear_download_cache, conf, download_file, is_url_in_cache
 from astropy.wcs import WCS, FITSFixedWarning
 from astroquery.ipac.irsa import Irsa
 from fastapi import Depends, FastAPI, HTTPException, Query, Response
@@ -388,13 +390,114 @@ def _cutout_url(url: str, ra: float, dec: float, size_arcsec: float) -> str:
     return f"{base}?center={ra},{dec}&size={size_arcsec:g}arcsec"
 
 
+# Loading a frame is almost entirely waiting on IRSA (processing takes ~0.05 s), so
+# frames load faster by overlapping downloads, not by using more CPU. Measured IRSA
+# cutout throughput: 1 at a time ~0.25 frames/s, 6 at a time ~1.5 frames/s, 10 at a
+# time slower again because IRSA starts answering 503. Cap all requests, from every
+# browser tab, at that sweet spot.
+IRSA_MAX_CONCURRENT_DOWNLOADS = 6
+_irsa_slots = threading.BoundedSemaphore(IRSA_MAX_CONCURRENT_DOWNLOADS)
+
+# One lock per cutout URL, so concurrent requests for the same cutout (e.g. the
+# pixels and the metadata of one frame) download it once and share the file.
+_download_locks: dict[str, threading.Lock] = {}
+_download_locks_guard = threading.Lock()
+
+
+# -- Disk cache limit --
+# Every cutout is 4-7 MB (mostly the bundled PSF table) and astropy's download cache
+# never shrinks on its own, so a long session can fill a small disk. Keep it under
+# SPHEREX_CACHE_MAX_GB (default 2) by deleting the least recently used cutouts.
+CACHE_MAX_BYTES = int(float(os.environ.get("SPHEREX_CACHE_MAX_GB", "2")) * 1024**3)
+CACHE_TARGET_BYTES = int(CACHE_MAX_BYTES * 0.8)   # trim down to this, so we don't trim on every download
+CACHE_CHECK_INTERVAL_S = 30                        # how often the size is re-checked at most
+CACHE_MIN_AGE_S = 120                              # never delete files used in the last 2 minutes
+
+_cache_trim_lock = threading.Lock()
+_cache_last_check = 0.0
+
+
+def _touch(path: str) -> None:
+    """Mark a cached file as recently used (its mtime drives eviction order)."""
+    try:
+        os.utime(path, None)
+    except OSError:
+        pass
+
+
+def _trim_disk_cache(force: bool = False) -> None:
+    """Delete least recently used IRSA cutouts until the cache is under its limit."""
+    global _cache_last_check
+    now = time.time()
+    if not force and now - _cache_last_check < CACHE_CHECK_INTERVAL_S:
+        return
+    if not _cache_trim_lock.acquire(blocking=False):
+        return  # another thread is already trimming
+    try:
+        _cache_last_check = now
+        entries = []
+        total = 0
+        for url, path in cache_contents(on_missing="ignore").items():
+            try:
+                stat = os.stat(path)
+            except OSError:
+                continue
+            total += stat.st_size
+            # Only IRSA cutouts are evicted; anything else astropy cached is left alone.
+            if urlparse(url).hostname in ALLOWED_IMAGE_HOSTS and "center=" in url:
+                entries.append((stat.st_mtime, stat.st_size, url))
+        if total <= CACHE_MAX_BYTES:
+            return
+
+        entries.sort()  # oldest (least recently used) first
+        for mtime, size, url in entries:
+            if total <= CACHE_TARGET_BYTES:
+                break
+            if now - mtime < CACHE_MIN_AGE_S:
+                break  # everything after this is newer still
+            lock = _download_locks.get(url)
+            if lock is not None and not lock.acquire(blocking=False):
+                continue  # being downloaded or read right now
+            try:
+                clear_download_cache(url, on_missing="ignore")
+                total -= size
+            except Exception:
+                pass  # e.g. file open in another process on Windows; try again next time
+            finally:
+                if lock is not None:
+                    lock.release()
+    finally:
+        _cache_trim_lock.release()
+
+
 def _fetch_fits(url: str) -> str:
     """Download a FITS file (cached on disk by astropy) and return its local path."""
-    # IRSA's cutout service intermittently returns 503, so retry quickly.
-    max_retries = 5
+    with _download_locks_guard:
+        lock = _download_locks.setdefault(url, threading.Lock())
+    with lock:
+        if is_url_in_cache(url):
+            path = download_file(url, cache=True)
+            _touch(path)
+            return path
+        path = _download_from_irsa(url)
+    # Trim in the background so this request isn't slowed down.
+    threading.Thread(target=_trim_disk_cache, daemon=True).start()
+    return path
+
+
+# Trim an oversized cache left by earlier sessions, without delaying startup.
+threading.Thread(target=_trim_disk_cache, kwargs={"force": True}, daemon=True).start()
+
+
+def _download_from_irsa(url: str) -> str:
+    """Download a cutout from IRSA into the disk cache, retrying transient errors."""
+    # IRSA's cutout service intermittently returns 503 (more often under load),
+    # so retry with a short, jittered backoff.
+    max_retries = 6
     for attempt in range(max_retries):
         try:
-            return download_file(url, cache=True, timeout=120)
+            with _irsa_slots:
+                return download_file(url, cache=True, timeout=120)
         except urllib.error.HTTPError as exc:
             if exc.code == 422:
                 raise HTTPException(status_code=422, detail="Cutout center is outside this image")
@@ -403,7 +506,7 @@ def _fetch_fits(url: str) -> str:
         except Exception as exc:
             if attempt == max_retries - 1:
                 raise HTTPException(status_code=502, detail=f"Failed to download FITS: {exc}")
-        time.sleep(attempt + 1)
+        time.sleep(0.5 * (attempt + 1) + random.uniform(0, 0.5))
     raise AssertionError("unreachable")
 
 
