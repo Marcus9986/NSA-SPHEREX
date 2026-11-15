@@ -23,6 +23,32 @@ dist-ssr
 *.sln
 *.sw?
 
+# OS files
+Thumbs.db
+desktop.ini
+
+# Secrets / local config (VITE_API_URL etc.); commit an .env.example instead
+.env
+.env.*
+!.env.example
+
+# Frontend build caches
+*.tsbuildinfo
+.vite/
+coverage/
 
 #backend
 .venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Downloaded astronomy data (the backend caches cutouts outside the repo)
+*.fits
+*.fits.gz
