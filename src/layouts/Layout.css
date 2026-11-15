@@ -13,8 +13,26 @@
     border-right: var(--border-size) solid var(--border-color);
 }
 
+/* -- Viewport Panel -- */
+
 .viewport-panel {
-    background: black}
+    background: black;
+}
+
+.viewport-root {
+    width: 100%;
+    height: 100%;
+    background: #000;
+}
+
+.viewport-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: #000;
+}
+
+/* -- Playback Control Panel -- */
 
 .playback-panel {
     border-top: var(--border-size) solid var(--border-color);
