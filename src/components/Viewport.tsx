@@ -1,19 +1,27 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { WebGLRenderer } from '../renderer/Index';
-import { type Image, defaultImage } from '../renderer/Image';
-import { searchImages, fetchCutout, fetchImageMeta, stretchForDisplay,
-         type ViewportImageInfo, type ViewTarget } from '../api/spherex';
+import { getCachedFrame, loadFrameNow,
+         type SpherexImage, type ViewportImageInfo, type ViewTarget } from '../api/spherex';
 
-const imageIndex = 0;   // which search result to show
+// Wait this long before downloading a frame that isn't cached, so dragging the
+// playhead across many frames only downloads the one it stops on.
+const LOAD_DELAY_MS = 150;
 
 type ViewportProps = {
     target:       ViewTarget
+    frame:        SpherexImage | null   // the image to show, chosen in the playback bar
+    frameIndex:   number
+    frameCount:   number
+    searching?:   boolean               // the image search for the target is still running
     onImageInfo?: (info: ViewportImageInfo) => void
 }
 
-export default function Viewport({ target, onImageInfo }: ViewportProps)
+export default function Viewport({ target, frame, frameIndex, frameCount, searching = false, onImageInfo }: ViewportProps)
 {
+    // True while the current frame is downloading; shows the spinner.
+    const [frameLoading, setFrameLoading] = useState(false);
+
     const canvasRef   = useRef<HTMLCanvasElement | null>(null);
     const rendererRef = useRef<WebGLRenderer | null>(null);
 
@@ -24,57 +32,64 @@ export default function Viewport({ target, onImageInfo }: ViewportProps)
 
     const { ra: rightAscension, dec: declination, fovArcsec: sizeArcsec } = target;
 
-    // Load a SPHEREx cutout whenever the target or field of view changes. Fetching
-    // is async, so the image is set on the renderer once the pixels arrive.
+    // Show the current frame whenever it, the target or the field of view changes.
+    // The previous image stays on screen until the new one is ready.
     useEffect(() =>
     {
-        const controller = new AbortController();
+        if (!frame)
+        {
+            setFrameLoading(false);
+            return;
+        }
+
+        let cancelled = false;
         const report = (info: ViewportImageInfo) => onImageInfoRef.current?.(info);
 
-        (async () =>
+        const view = { ra: rightAscension, dec: declination, fovArcsec: sizeArcsec };
+        const info = { ra: rightAscension, dec: declination, sizeArcsec,
+                       index: frameIndex, totalImages: frameCount, image: frame };
+
+        const cached = getCachedFrame(frame.access_url, view);
+        if (cached)
+        {
+            rendererRef.current?.setViewportImage(cached.image);
+            report({ ...info, status: 'loaded', meta: cached.meta });
+            setFrameLoading(false);
+            return;
+        }
+
+        report({ ...info, status: 'loading' });
+        setFrameLoading(true);
+
+        const timer = setTimeout(async () =>
         {
             try
             {
-                const base = { ra: rightAscension, dec: declination, sizeArcsec };
-                report({ ...base, status: 'loading' });
-
-                const { images, total } = await searchImages(rightAscension, declination, { signal: controller.signal });
-                if (images.length === 0)
-                {
-                    report({ ...base, status: 'error', error: 'No SPHEREx images cover this position' });
+                const loaded = await loadFrameNow(frame.access_url, view);
+                if (cancelled)
                     return;
-                }
-
-                const index = Math.min(imageIndex, images.length - 1);
-                const record = images[index];
-                const info = { ...base, index, totalImages: total, image: record };
-                report({ ...info, status: 'loading' });
-
-                const cutout = await fetchCutout(record.access_url, rightAscension, declination,
-                                                 { sizeArcsec, signal: controller.signal });
-
-                const image: Image = stretchForDisplay(cutout);
-                rendererRef.current?.setViewportImage(image);
-
-                // The FITS file is cached on the server now, so this is quick.
-                const meta = await fetchImageMeta(record.access_url, rightAscension, declination,
-                                                  { sizeArcsec, signal: controller.signal });
-                report({ ...info, status: 'loaded', meta });
+                rendererRef.current?.setViewportImage(loaded.image);
+                report({ ...info, status: 'loaded', meta: loaded.meta });
+                setFrameLoading(false);
             }
             catch (error)
             {
-                if (controller.signal.aborted)
+                if (cancelled)
                     return;
                 console.error(error);
-                report({ ra: rightAscension, dec: declination, sizeArcsec, status: 'error',
+                report({ ...info, status: 'error',
                          error: error instanceof Error ? error.message : String(error) });
+                setFrameLoading(false);
             }
-        })();
+        }, LOAD_DELAY_MS);
 
-        // Cancel the in-flight request if the target changes or we unmount.
-        return () => controller.abort();
+        return () =>
+        {
+            cancelled = true;
+            clearTimeout(timer);
+        };
 
-    }, [rightAscension, declination, sizeArcsec]);
+    }, [frame, frameIndex, frameCount, rightAscension, declination, sizeArcsec]);
 
     useEffect(() =>
     {
@@ -161,6 +176,17 @@ export default function Viewport({ target, onImageInfo }: ViewportProps)
     return (
         <div className="viewport-root">
             <canvas ref={canvasRef} className="viewport-canvas" />
+
+            {(searching || frameLoading) && (
+                <div className="viewport-loading" role="status" aria-live="polite">
+                    <div className="viewport-spinner" aria-hidden="true" />
+                    <span>
+                        {searching
+                            ? 'Searching for images…'
+                            : `Loading frame ${frameIndex + 1} of ${frameCount}…`}
+                    </span>
+                </div>
+            )}
         </div>
     );
 }

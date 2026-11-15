@@ -5,7 +5,8 @@ import { useState } from 'react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 
 import type { ToolDefinition } from '../App'
-import type { ViewportImageInfo, ViewTarget } from '../api/spherex'
+import type { ViewTarget } from '../api/spherex'
+import { useFrames } from '../hooks/useFrames'
 import Sidebar from '../components/Sidebar'
 import Viewport from '../components/Viewport'
 import Toolbar from '../components/Toolbar'
@@ -28,9 +29,6 @@ export default function DefaultLayout({
     onPropertyChange,
 }: DefaultLayoutProps)
 {
-    // Info about the image in the viewport, shown in the sidebar.
-    const [imageInfo, setImageInfo] = useState<ViewportImageInfo | null>(null)
-
     // Sky position and field of view the viewport loads; edited in the sidebar.
     const [target, setTarget] = useState<ViewTarget>({
         ra:        304.6935088,
@@ -38,11 +36,15 @@ export default function DefaultLayout({
         fovArcsec: 300,
     })
 
+    // Images found at the target, the frame being shown and playback state,
+    // shared by the viewport, the playback bar and the sidebar.
+    const frames = useFrames(target)
+
     return (
         <>
             <Group orientation="horizontal" className="workspace">
                 <Panel defaultSize="300px" minSize="250px" className="panel sidebar-panel">
-                    <Sidebar info={imageInfo} target={target} onTargetChange={setTarget} />
+                    <Sidebar info={frames.info} target={target} onTargetChange={setTarget} />
                 </Panel>
 
                 <Separator className="resize-handle" />
@@ -50,13 +52,20 @@ export default function DefaultLayout({
                 <Panel defaultSize="60%" minSize="20%" className="panel main-panel">
                     <Group orientation="vertical">
                         <Panel className="panel viewport-panel">
-                            <Viewport target={target} onImageInfo={setImageInfo} />
+                            <Viewport
+                                target={target}
+                                frame={frames.frame}
+                                frameIndex={frames.frameIndex}
+                                frameCount={frames.frames.length}
+                                searching={frames.status === 'loading'}
+                                onImageInfo={frames.onImageInfo}
+                            />
                         </Panel>
 
                         <Separator className="resize-handle" />
 
                         <Panel disabled defaultSize="120px" minSize="120px" maxSize="120px" className="panel playback-panel">
-                            <PlaybackPanel />
+                            <PlaybackPanel frames={frames} target={target} />
                         </Panel>
                     </Group>
                 </Panel>
