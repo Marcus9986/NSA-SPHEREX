@@ -1,0 +1,89 @@
+/* Tags for known solar-system bodies, drawn over the viewport image. */
+.body-overlay {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;   /* pan / zoom still reach the canvas */
+    z-index: 1;
+}
+
+.body-tag {
+    --body-color: #fb923c;   /* asteroids: orange */
+}
+
+.body-comet   { --body-color: #22d3ee; }
+.body-planet  { --body-color: #facc15; }
+.body-nea     { --body-color: #f87171; }
+.body-distant { --body-color: #c084fc; }
+
+.body-ring {
+    fill: none;
+    stroke: var(--body-color);
+    stroke-width: 1.5;
+    filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.9));
+}
+
+/* Invisible, wider target so the tag is easy to hover for its details. */
+.body-hit {
+    fill: transparent;
+    stroke: none;
+    pointer-events: all;
+    cursor: help;
+}
+
+.body-motion {
+    fill: none;
+    stroke: var(--body-color);
+    stroke-width: 1.3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0.85;
+}
+
+.body-name,
+.body-detail {
+    paint-order: stroke;
+    stroke: rgba(5, 8, 15, 0.9);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+}
+
+.body-name {
+    fill: var(--body-color);
+    font: 700 11px var(--sans);
+}
+
+.body-detail {
+    fill: #cbd5e1;
+    font: 9px var(--mono);
+}
+
+.body-tag:hover .body-ring {
+    stroke-width: 2.5;
+}
+
+/* Too faint for SPHEREx: small dashed ring, dim, no arrowhead emphasis. */
+.body-faint .body-ring {
+    stroke-width: 1.3;
+    stroke-dasharray: 3 2;
+    opacity: 0.85;
+}
+
+.body-faint .body-motion {
+    opacity: 0.6;
+}
+
+/* Names only on the brightest few; everything else shows its name on hover. */
+.body-tag:not(.body-labelled) .body-name,
+.body-tag:not(.body-labelled) .body-detail {
+    display: none;
+}
+
+.body-tag:hover .body-name,
+.body-tag:hover .body-detail {
+    display: inline;
+}
+
+.body-tag:hover {
+    opacity: 1;
+}

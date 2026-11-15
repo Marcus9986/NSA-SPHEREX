@@ -86,6 +86,32 @@ export function setShaderUniform1f(gl: WebGL2RenderingContext, shader: Shader, n
     unbindShader(gl);
 }
 
+export function setShaderUniform2f(gl: WebGL2RenderingContext, shader: Shader, name: string, x: number, y: number): void
+{
+    bindShader(gl, shader);
+
+    const location = shader.uniforms[name];
+    if (location)
+    {
+        gl.uniform2f(location, x, y);
+    }
+
+    unbindShader(gl);
+}
+
+export function setShaderUniform3f(gl: WebGL2RenderingContext, shader: Shader, name: string, x: number, y: number, z: number): void
+{
+    bindShader(gl, shader);
+
+    const location = shader.uniforms[name];
+    if (location)
+    {
+        gl.uniform3f(location, x, y, z);
+    }
+
+    unbindShader(gl);
+}
+
 export function setShaderUniform1i(gl: WebGL2RenderingContext, shader: Shader, name: string, value: number): void
 {
     bindShader(gl, shader);

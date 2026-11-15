@@ -1,0 +1,198 @@
+/* Ruler drawn over the viewport image by the measure tool. */
+.measure-overlay {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;   /* drags still reach the canvas */
+    z-index: 2;             /* above the body tags */
+}
+
+.measure-line {
+    stroke: #34d399;
+    stroke-width: 1.5;
+    stroke-dasharray: 6 3;
+    filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.9));
+}
+
+.measure-end {
+    fill: #020817;
+    stroke: #34d399;
+    stroke-width: 1.5;
+}
+
+.measure-label {
+    fill: #d1fae5;
+    font: 700 12px var(--mono);
+    paint-order: stroke;
+    stroke: rgba(5, 8, 15, 0.9);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+}
+
+.measure-name {
+    fill: #6ee7b7;
+    font: 700 11px var(--sans);
+    paint-order: stroke;
+    stroke: rgba(5, 8, 15, 0.9);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+}
+
+/* Object found with the header search. */
+.object-marker circle,
+.object-marker path {
+    fill: none;
+    stroke: #f0abfc;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.9));
+}
+
+.object-marker-name {
+    fill: #f5d0fe;
+    font: 700 12px var(--sans);
+    paint-order: stroke;
+    stroke: rgba(5, 8, 15, 0.9);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+}
+
+/* -- Readout in the properties panel (rows reuse the sidebar's .info-section / .info-row) -- */
+
+.measure-hint {
+    margin: 0;
+    padding: 10px;
+    border: 1px dashed var(--border-color);
+    border-radius: 8px;
+    color: #94a3b8;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.measure-readout {
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.measure-readout-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px 6px;
+}
+
+.measure-distance {
+    color: #6ee7b7;
+    font: 700 20px var(--mono);
+}
+
+.measure-clear {
+    padding: 3px 10px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 6px;
+    background: rgba(17, 24, 39, 0.72);
+    color: #e2e8f0;
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.measure-clear:hover {
+    border-color: rgba(96, 165, 250, 0.8);
+}
+
+.measure-clear:focus-visible {
+    outline: none;
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.6);
+}
+
+.measure-arrow {
+    fill: #34d399;
+}
+
+/* -- "Distance between objects" form: tight rows, narrow labels, wide name boxes -- */
+
+.object-distance {
+    gap: 5px;
+    padding: 6px 8px 8px;
+}
+
+.object-distance-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.object-distance .target-submit.object-distance-submit {
+    padding: 3px 12px;
+    font-size: 10.5px;
+}
+
+/* Small caption labels in a column wide enough for "FROM", so they never touch the boxes. */
+.object-distance .target-field {
+    grid-template-columns: 40px 1fr;
+    column-gap: 8px;
+}
+
+.object-distance .target-field > span:first-child {
+    color: #94a3b8;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+/* The sidebar's .target-fov-number is a 64px right-aligned number box; here the
+   box fills its column and reads left to right like a name. */
+.object-distance .target-fov-number {
+    flex: 1 1 auto;
+    width: 100%;
+    padding: 4px 8px;
+    text-align: left;
+}
+
+.object-distance-actions {
+    display: flex;
+    gap: 5px;
+}
+
+.object-distance .object-distance-random {
+    background: rgba(148, 163, 184, 0.14);
+    border-color: rgba(148, 163, 184, 0.45);
+}
+
+/* Spinning: every new name drops in from above with a little blur, like a reel turning.
+   Two identical keyframes, alternated per name, so the animation restarts on each tick. */
+.object-distance .object-spin {
+    color: #e2e8f0;
+}
+
+.object-distance .object-spin-a { animation: object-reel-a 70ms ease-out; }
+.object-distance .object-spin-b { animation: object-reel-b 70ms ease-out; }
+
+@keyframes object-reel-a {
+    from { transform: translateY(-4px); filter: blur(1.2px); opacity: 0.55; }
+    to   { transform: none; filter: none; opacity: 1; }
+}
+
+@keyframes object-reel-b {
+    from { transform: translateY(-4px); filter: blur(1.2px); opacity: 0.55; }
+    to   { transform: none; filter: none; opacity: 1; }
+}
+
+/* Landed: a quick green flash on the box. */
+.object-distance .object-landed {
+    animation: object-landed 450ms ease-out;
+}
+
+@keyframes object-landed {
+    0%   { border-color: #34d399; box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.45); transform: scale(1.02); }
+    100% { border-color: #475569; box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); transform: none; }
+}
+
+.measure-actions {
+    display: flex;
+    gap: 5px;
+}

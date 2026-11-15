@@ -1,22 +1,27 @@
+import type { ReactNode } from 'react'
+
 import type { ToolDefinition } from '../App'
 
 type PropertiesPanelProps = {
     tool: ToolDefinition
     onPropertyChange: (propertyKey: string, nextValue: string | number | boolean) => void
+    children?: ReactNode   // tool-specific content (e.g. the measure readout) under the properties
 }
 
-export default function PropertiesPanel({ tool, onPropertyChange }: PropertiesPanelProps)
+export default function PropertiesPanel({ tool, onPropertyChange, children }: PropertiesPanelProps)
 {
     return (
         <div className="properties-panel-content">
             <div className="properties-header">
-                <img className="properties-icon" src={tool.icon} alt={tool.label} />
+                <img className="properties-icon" src={tool.icon} alt="" />
                 <h3>{tool.label}</h3>
             </div>
 
             <p className="properties-description">{tool.description}</p>
 
-            <div className="properties-list">
+            {children}
+
+            {tool.properties.length > 0 && <div className="properties-list">
                 {tool.properties.map((property) => (
                     <label key={property.key} className="property-row">
                         <span>{property.label}</span>
@@ -67,7 +72,7 @@ export default function PropertiesPanel({ tool, onPropertyChange }: PropertiesPa
                         )}
                     </label>
                 ))}
-            </div>
+            </div>}
         </div>
     )
 }

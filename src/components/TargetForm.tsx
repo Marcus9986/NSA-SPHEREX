@@ -25,6 +25,16 @@ function fovLabel(arcsec: number): string
     return `${arcsec} arcsec`
 }
 
+/** Short preset label, so all presets fit on one row: 1′, 5′, 1°. */
+function fovShortLabel(arcsec: number): string
+{
+    if (arcsec >= 3600)
+        return `${+(arcsec / 3600).toFixed(2)}°`
+    if (arcsec >= 60)
+        return `${+(arcsec / 60).toFixed(1)}′`
+    return `${arcsec}″`
+}
+
 /** FOV in degrees, for the hint under the slider. */
 function fovDegrees(arcsec: number): string
 {
@@ -253,9 +263,10 @@ export default function TargetForm({ target, loading, onChange }: TargetFormProp
                         className={preset === target.fovArcsec ? 'target-preset target-preset-active' : 'target-preset'}
                         onClick={() => applyFov(preset)}
                         disabled={!valid}
-                        title={`${preset} arcsec = ${fovDegrees(preset)}`}
+                        title={`${fovLabel(preset)} (${preset} arcsec = ${fovDegrees(preset)})`}
+                        aria-label={`Field of view ${fovLabel(preset)}`}
                     >
-                        {fovLabel(preset)}
+                        {fovShortLabel(preset)}
                     </button>
                 ))}
             </div>

@@ -1,0 +1,94 @@
+/* Stack of view-mode buttons under the sky gizmo (top-right of the viewport). */
+.view-mode-bar {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 3px;
+    width: 88px;
+    /* The gizmo's SVG is wider than what it draws; line up with its "W" label. */
+    margin-right: 16px;
+    user-select: none;
+}
+
+.vm-heading {
+    /* One line, growing leftward from the buttons' right edge. */
+    align-self: flex-end;
+    white-space: nowrap;
+    margin: 5px 2px 1px;
+    color: #94a3b8;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-align: right;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+
+.vm-button {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+    padding: 3px 7px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 6px;
+    background: rgba(17, 24, 39, 0.72);
+    color: #e2e8f0;
+    font: inherit;
+    text-align: right;
+    cursor: pointer;
+    transition: background 0.1s ease, border-color 0.1s ease;
+}
+
+.vm-button:hover:not(:disabled) {
+    border-color: rgba(96, 165, 250, 0.8);
+    background: rgba(30, 41, 59, 0.9);
+}
+
+.vm-button:focus-visible {
+    outline: none;
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.6);
+}
+
+.vm-button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Active mode: filled blue, like the other "on" toggles in the app. */
+.vm-button-on,
+.vm-button-on:hover:not(:disabled) {
+    border-color: rgba(96, 165, 250, 0.9);
+    background: rgba(37, 99, 235, 0.6);
+    color: #fff;
+}
+
+/* An overlay that's switched on: orange, the colour of the body tags. */
+.vm-toggle-on,
+.vm-toggle-on:hover:not(:disabled) {
+    border-color: rgba(251, 146, 60, 0.85);
+    background: rgba(154, 52, 18, 0.55);
+    color: #fff;
+}
+
+.vm-toggle-on .vm-detail {
+    color: #fed7aa;
+}
+
+.vm-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.vm-detail {
+    font-size: 8.5px;
+    white-space: nowrap;
+    line-height: 1.2;
+    color: #94a3b8;
+}
+
+.vm-button-on .vm-detail {
+    color: #dbeafe;
+}

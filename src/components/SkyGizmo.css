@@ -1,0 +1,215 @@
+/* Celestial-sphere gizmo in the top-right corner of the viewport. */
+/* No panel: just the sphere and its labels over the image. */
+.sky-gizmo {
+    color: #e2e8f0;
+    user-select: none;
+}
+
+.sky-gizmo-svg {
+    display: block;
+    cursor: grab;
+    touch-action: none;
+    overflow: visible;
+}
+
+.sky-gizmo-dragging {
+    cursor: grabbing;
+}
+
+.sky-gizmo-svg:not(.sky-gizmo-dragging) .sg-body,
+.sky-gizmo-svg:not(.sky-gizmo-dragging) .sg-limb {
+    cursor: crosshair;
+}
+
+/* Preview of where a click would go: ring on the sphere, coordinates underneath. */
+.sg-hover {
+    fill: none;
+    stroke: #fff;
+    stroke-width: 1.2;
+    pointer-events: none;
+}
+
+.sky-gizmo-svg text.sg-hover-label {
+    font-size: 10.5px;
+    font-family: var(--mono);
+    fill: #e2e8f0;
+}
+
+/* -- Sphere -- */
+
+.sg-body {
+    fill: rgba(30, 41, 59, 0.55);
+}
+
+.sg-limb {
+    fill: none;
+    stroke: rgba(148, 163, 184, 0.75);
+    stroke-width: 1;
+}
+
+.sg-grid {
+    fill: none;
+    stroke: rgba(148, 163, 184, 0.32);
+    stroke-width: 0.6;
+}
+
+.sg-equator {
+    fill: none;
+    stroke: rgba(226, 232, 240, 0.8);
+    stroke-width: 1.1;
+}
+
+.sg-axis {
+    stroke: #e2e8f0;
+    stroke-width: 1;
+}
+
+/* Anything on the far side of the sphere: faint and dashed. */
+.sg-back {
+    opacity: 0.45;
+    stroke-dasharray: 2 2.5;
+}
+
+.sg-back-fill {
+    opacity: 0.4;
+}
+
+/* -- Coordinates: RA in blue, Dec in amber, target in red (same as the timeline marker) -- */
+
+.sg-ra {
+    fill: none;
+    stroke: #60a5fa;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+}
+
+.sg-dec {
+    fill: none;
+    stroke: #fbbf24;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+}
+
+.sg-ra.sg-back,
+.sg-dec.sg-back {
+    stroke-width: 1.5;
+}
+
+.sg-ra-label  { color: #60a5fa; fill: #60a5fa; }
+.sg-dec-label { color: #fbbf24; fill: #fbbf24; }
+
+.sg-target {
+    fill: var(--nasa-red);
+    stroke: #fff;
+    stroke-width: 1.2;
+}
+
+.sg-target-back {
+    fill: transparent;
+    stroke: var(--nasa-red);
+    stroke-dasharray: 2 1.5;
+}
+
+.sg-origin {
+    fill: #e2e8f0;
+}
+
+/* -- Labels -- */
+
+.sky-gizmo-svg text {
+    text-anchor: middle;
+    font-family: var(--sans);
+    paint-order: stroke;
+    stroke: rgba(17, 24, 39, 0.9);
+    stroke-width: 2.5px;
+    stroke-linejoin: round;
+}
+
+.sg-pole {
+    font-size: 11px;
+    font-weight: 700;
+    fill: #fff;
+}
+
+.sg-cardinal {
+    font-size: 10px;
+    font-weight: 700;
+    fill: #cbd5e1;
+}
+
+.sg-hour {
+    font-size: 8px;
+    font-family: var(--mono);
+    fill: #cbd5e1;
+}
+
+.sg-hour-back {
+    opacity: 0.4;
+}
+
+/* RA / Dec values at the ends of their arcs. */
+.sky-gizmo-svg text.sg-value {
+    font-size: 9px;
+    font-family: var(--mono);
+    font-weight: 700;
+    stroke-width: 3px;
+}
+
+.sg-value-back {
+    opacity: 0.6;
+}
+
+
+/* -- Field of view pyramid (Earth at the centre, out to the imaged patch) -- */
+
+.sg-fov-cone {
+    fill: rgba(255, 255, 255, 0.12);
+    stroke: none;
+}
+
+.sg-fov-edge {
+    stroke: rgba(255, 255, 255, 0.7);
+    stroke-width: 0.8;
+}
+
+.sg-fov-base {
+    fill: rgba(255, 255, 255, 0.25);
+    stroke: #ffffff;
+    stroke-width: 1.2;
+    stroke-linejoin: round;
+}
+
+/* Drawn bigger than the real field so it's visible: dashed outline as a hint. */
+.sg-fov-enlarged {
+    stroke-dasharray: 2.5 1.5;
+}
+
+.sg-fov-back {
+    opacity: 0.4;
+}
+
+.sg-earth {
+    fill: #ffffff;
+}
+
+.sky-gizmo-svg text.sg-fov-label {
+    font-size: 8px;
+    font-family: var(--mono);
+    font-weight: 700;
+    fill: #ffffff;
+}
+
+/* -- The measure tool's ruler (same green as on the image) -- */
+
+.sg-measure-line {
+    fill: none;
+    stroke: #34d399;
+    stroke-width: 1.6;
+    /* Dashed like the ruler on the image (6 3 there), scaled to the small sphere; the far side
+       keeps this dash and is told apart by being faded. */
+    stroke-dasharray: 4 2.5;
+}
+
+.sg-measure-end {
+    fill: #34d399;
+}

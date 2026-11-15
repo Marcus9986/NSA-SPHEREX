@@ -16,45 +16,215 @@
 /* -- Viewport Panel -- */
 
 .viewport-panel {
-    background: black;
+    background: #070b16;
 }
 
+/* Backdrop around the image: a faint dot grid (like a design canvas) over a dark
+   navy vignette, so the image's edges are clear and empty space doesn't look broken. */
 .viewport-root {
     position: relative;
     width: 100%;
     height: 100%;
-    background: #000;
+    background-color: #070b16;
+    background-image:
+        radial-gradient(circle, rgba(148, 163, 184, 0.12) 1px, transparent 1.4px),
+        radial-gradient(ellipse at center, #10182a 0%, #0a101e 55%, #05080f 100%);
+    background-size: 22px 22px, 100% 100%;
+    background-position: center center, center center;
 }
 
-/* Spinner shown over the image while a frame or search is loading. Fades in after a
-   short delay so frames that load almost instantly don't flash it. */
+/* Top-right column: sky gizmo with the view-mode buttons underneath. */
+/* Gizmo in the top-right corner and the view-mode buttons in the bottom-right corner,
+   each the same distance in from its edge of the viewport. */
+.viewport-gizmo,
+.viewport-modes {
+    position: absolute;
+    right: 10px;
+    z-index: 2;
+}
+
+.viewport-gizmo {
+    top: 24px;
+}
+
+.viewport-modes {
+    bottom: 24px;
+}
+
+/* Top-left: sky coordinates under the mouse. */
+.viewport-cursor {
+    position: absolute;
+    left: 10px;
+    top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: rgba(17, 24, 39, 0.78);
+    color: #f8fafc;
+    font: 12px/1.35 var(--mono);
+    font-variant-numeric: tabular-nums;   /* digits don't jiggle as the mouse moves */
+    pointer-events: none;
+    z-index: 2;
+}
+
+.viewport-cursor-key {
+    display: inline-block;
+    width: 3.5ch;
+    color: #94a3b8;
+    font-family: var(--sans);
+}
+
+.viewport-cursor-deg {
+    color: #94a3b8;
+    font-size: 10.5px;
+}
+
+/* Bottom-left note on what's being shown in difference / survey mode. */
+.viewport-caption {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    max-width: calc(100% - 160px);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: rgba(17, 24, 39, 0.78);
+    color: #e2e8f0;
+    font-size: 11px;
+    line-height: 1.35;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.viewport-caption strong {
+    color: #fff;
+}
+
+.viewport-caption-key {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    color: #cbd5e1;
+}
+
+.viewport-caption-key i {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border: 1px solid rgba(148, 163, 184, 0.6);
+    border-radius: 2px;
+}
+
+/* A little extra space between key entries. */
+.viewport-caption-key i:not(:first-child) {
+    margin-left: 6px;
+}
+
+.key-white { background: #fff; }
+.key-grey  { background: #808080; }
+.key-black { background: #000; }
+
+.viewport-caption-dim {
+    color: #94a3b8;
+}
+
+.viewport-caption-error {
+    color: #fca5a5;
+}
+
+/* Loading animation, shown before the first image and whenever the frame being
+   viewed isn't downloaded yet. It covers the viewport with the same backdrop and shows
+   a placeholder frame where the image goes. Fades in after a short delay, so frames
+   that load almost instantly don't flash it. Clicks and scrolling pass through to the
+   canvas, and the gizmo / buttons / caption stay on top. */
 .viewport-loading {
     position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
+    inset: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 10px;
-    padding: 16px 20px;
-    border-radius: 10px;
-    background: rgba(17, 24, 39, 0.75);
-    color: #e2e8f0;
+    justify-content: center;
+    gap: 14px;
+    background-color: #070b16;
+    background-image:
+        radial-gradient(circle, rgba(148, 163, 184, 0.12) 1px, transparent 1.4px),
+        radial-gradient(ellipse at center, #10182a 0%, #0a101e 55%, #05080f 100%);
+    background-size: 22px 22px, 100% 100%;
+    background-position: center center, center center;
+    color: #cbd5e1;
     font-size: 12px;
     pointer-events: none;
     opacity: 0;
+    z-index: 1;
     animation: viewport-fade-in 0.2s ease-out 0.25s forwards;
 }
 
+/* Same size and place as an image at the default zoom (half the viewport height, square). */
+.loading-frame {
+    position: relative;
+    height: 50%;
+    max-width: 80%;
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    background: #04060c;
+    box-shadow: 0 0 18px 2px rgba(158, 184, 235, 0.06);
+}
+
+/* A soft band of light sweeping across, like the image is being scanned in. */
+.loading-frame::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(100deg, transparent 30%, rgba(148, 163, 184, 0.07) 50%, transparent 70%);
+    transform: translateX(-100%);
+    animation: loading-sweep 1.8s ease-in-out infinite;
+}
+
+.loading-star {
+    position: absolute;
+    border-radius: 50%;
+    background: #e2e8f0;
+    box-shadow: 0 0 4px rgba(226, 232, 240, 0.7);
+    opacity: 0.15;
+    animation: loading-twinkle 2.2s ease-in-out infinite;
+}
+
+/* Below the frame, positioned on its own so the frame stays exactly where the image
+   will appear (centred; its bottom edge is at 75% of the height). */
+.loading-label {
+    position: absolute;
+    top: calc(75% + 12px);
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
 .viewport-spinner {
-    width: 32px;
-    height: 32px;
+    width: 14px;
+    height: 14px;
     box-sizing: border-box;
-    border: 3px solid rgba(148, 163, 184, 0.25);
+    border: 2px solid rgba(148, 163, 184, 0.25);
     border-top-color: #60a5fa;
     border-radius: 50%;
     animation: viewport-spin 0.8s linear infinite;
+}
+
+@keyframes loading-sweep {
+    to { transform: translateX(100%); }
+}
+
+@keyframes loading-twinkle {
+    0%, 100% { opacity: 0.12; }
+    50%      { opacity: 0.85; }
 }
 
 @keyframes viewport-spin {
@@ -67,13 +237,21 @@
 
 @media (prefers-reduced-motion: reduce) {
     .viewport-spinner { animation-duration: 2.4s; }
+    .loading-frame::after { animation: none; }
+    .loading-star { animation: none; opacity: 0.4; }
 }
 
 .viewport-canvas {
     display: block;
     width: 100%;
     height: 100%;
-    background: #000;
+    background: transparent;
+    touch-action: none;
+}
+
+/* Right-button drag in progress: closed hand, as if gripping the image. */
+.viewport-canvas.viewport-panning {
+    cursor: grabbing;
 }
 
 /* -- Playback Control Panel -- */
@@ -93,70 +271,107 @@
     overflow: hidden;
 }
 
+/* Measure tool selected: precise pointer over the image. */
+.viewport-canvas.viewport-measuring {
+    cursor: crosshair;
+}
+
 /* -- Toolbar Elements -- */
 
 .toolbar-panel {
+    flex: 0 0 auto;
     border-inline: var(--border-size) solid var(--border-color);
+    background: rgba(2, 8, 23, 0.6);
 }
 
 .toolbar {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: flex-start;
-    gap: 8px;
-    width: 100%;
+    gap: 4px;
     height: 100%;
+    padding: 6px 3px;
     box-sizing: border-box;
 }
 
 .tool-button {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 35px;
-    height: 35px;
-    padding: 0; 
-    border: 1px solid #94a3b8;
-    border-radius: 10px;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
     cursor: pointer;
-    transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    transition: background 0.12s ease, border-color 0.12s ease;
 }
 
 .tool-button:hover {
-    border-color: #60a5fa;
+    background: rgba(148, 163, 184, 0.12);
+    border-color: rgba(148, 163, 184, 0.35);
 }
 
-.tool-button-selected {
-    background: #2563eb;
-    border-color: #93c5fd;
-    box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.25);
+.tool-button:focus-visible {
+    outline: none;
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.6);
+}
+
+.tool-button-selected,
+.tool-button-selected:hover {
+    background: rgba(37, 99, 235, 0.45);
+    border-color: rgba(96, 165, 250, 0.9);
+}
+
+/* Accent bar on the panel edge next to the active tool. */
+.tool-button-selected::before {
+    content: '';
+    position: absolute;
+    left: -4px;
+    top: 6px;
+    bottom: 6px;
+    width: 2px;
+    border-radius: 2px;
+    background: #60a5fa;
+}
+
+/* The icon SVGs are black; turn them light grey, white when active. */
+.tool-icon,
+.properties-icon {
+    display: block;
+    object-fit: contain;
+    filter: invert(0.8);
 }
 
 .tool-icon {
-    display: block;
-    width: 24px;
-    height: 24px;
-    object-fit: contain;
-    border-radius: 8px;
-    background: rgba(148, 163, 184, 0.15);
-    padding: 4px;
-    box-sizing: border-box;
+    width: 20px;
+    height: 20px;
+}
+
+.tool-button-selected .tool-icon,
+.tool-button:hover .tool-icon {
+    filter: invert(1);
 }
 
 /* -- Properties Panel Elements -- */
 
 .properties-panel {
     flex: 1 1 auto;
-    width: 100%;
+    min-width: 0;
     height: 100%;
     box-sizing: border-box;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
 }
 
 .properties-panel-content {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    gap: 12px;
     padding: 12px;
     box-sizing: border-box;
 }
@@ -164,8 +379,9 @@
 .properties-header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
+    gap: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
 }
 
 .properties-header h3 {
@@ -175,27 +391,25 @@
 }
 
 .properties-icon {
-    display: block;
-    width: 22px;
-    height: 22px;
-    border-radius: 6px;
-    background: rgba(96, 165, 250, 0.15);
-    padding: 4px;
-    box-sizing: border-box;
-    object-fit: contain;
+    width: 18px;
+    height: 18px;
 }
 
 .properties-description {
-    margin: 0 0 12px;
-    color: #cbd5e1;
+    margin: 0;
+    color: #94a3b8;
     font-size: 12px;
-    line-height: 1.4;
+    line-height: 1.45;
 }
 
 .properties-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 14px;
+    padding: 10px;
+    border: var(--border-size) solid var(--border-color);
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.6);
 }
 
 .property-row {
@@ -209,40 +423,47 @@
 .property-row input {
     width: 100%;
     box-sizing: border-box;
-    border: 1px solid #475569;
+    border: 1px solid rgba(148, 163, 184, 0.35);
     border-radius: 6px;
-    background: #0f172a;
+    background: #0b1222;
     color: #f8fafc;
-    padding: 8px 10px;
+    padding: 6px 8px;
+    font: inherit;
+}
+
+.property-row input:focus-visible {
+    outline: none;
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.6);
 }
 
 .property-row input[type='checkbox'] {
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     accent-color: #60a5fa;
 }
 
 .slider-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
 }
 
 .slider-row input[type='range'] {
     flex: 1 1 auto;
+    min-width: 0;
     padding: 0;
-    background: transparent;
     border: none;
+    background: transparent;
+    box-shadow: none;
+    accent-color: #3b82f6;
+    cursor: pointer;
 }
 
-.slider-number {
-    width: 64px;
-    padding: 6px 8px;
-    border: 1px solid #475569;
-    border-radius: 6px;
-    background: #0f172a;
-    color: #f8fafc;
-    font-size: 12px;
-    box-sizing: border-box;
+.property-row .slider-number {
+    flex: 0 0 auto;
+    width: 58px;
+    padding: 4px 6px;
+    font-family: var(--mono);
+    text-align: right;
 }
-
