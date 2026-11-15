@@ -30,7 +30,7 @@ type DefaultLayoutProps = {
     onPropertyChange: (propertyKey: string, nextValue: string | number | boolean) => void
     target: ViewTarget   // sky position and field of view the viewport loads (owned by App: the header search moves it too)
     setTarget: Dispatch<SetStateAction<ViewTarget>>
-    initialView?: { wavelengthUm?: number, frameId?: string }   // from the page URL
+    initialView?: { wavelengthUm?: number, frameId?: string, embed?: boolean, autoplay?: boolean }   // from the page URL
     located: ResolvedObject | null   // object found with the header search, marked in the viewport
 }
 
@@ -72,6 +72,28 @@ export default function DefaultLayout({
 
     // Post-processing layers applied to the viewport image, in order.
     const [layers, setLayers] = useState<Layer[]>([])
+
+    // Embedded on another site: only the viewport, showing the image (playback still runs).
+    if (initialView?.embed)
+    {
+        return (
+            <div className="embed-root">
+                <Viewport
+                    embed
+                    target={target}
+                    frame={frames.frame}
+                    frameIndex={frames.frameIndex}
+                    frameCount={frames.frames.length}
+                    searching={frames.status === 'loading'}
+                    viewMode={frames.viewMode}
+                    onViewModeChange={frames.setViewMode}
+                    refFrame={frames.refFrame}
+                    refIndex={frames.refIndex}
+                    onImageInfo={frames.onImageInfo}
+                />
+            </div>
+        )
+    }
 
     return (
         <>

@@ -57,6 +57,8 @@ export interface CutoutOptions
     bin?:        number;
     align?:      boolean;
     signal?:     AbortSignal;
+    /** Browser fetch priority: the viewport's own image goes 'high', background preloads 'low'. */
+    priority?:   RequestPriority;
 }
 
 export interface CutoutImage extends Image
@@ -121,7 +123,7 @@ export async function fetchCutout(imageUrl: string, ra: number, dec: number, opt
         align:       options.align,
     });
 
-    const res = await fetch(url, { signal: options.signal });
+    const res = await fetch(url, { signal: options.signal, priority: options.priority });
     await checkResponse(res, 'Cutout');
 
     const width  = Number(res.headers.get('X-Width'));
@@ -255,7 +257,7 @@ export async function fetchImageMeta(imageUrl: string, ra: number, dec: number, 
         align:       options.align,
     });
 
-    const res = await fetch(url, { signal: options.signal });
+    const res = await fetch(url, { signal: options.signal, priority: options.priority });
     await checkResponse(res, 'Image metadata');
     return res.json();
 }
@@ -327,7 +329,7 @@ export function parseCoordinate(text: string, kind: 'ra' | 'dec'): number | null
 export interface LoadedFrame
 {
     image: Image;
-    meta:  ImageMeta;
+    meta?: ImageMeta;   // fetched after the pixels (loadFrameMeta), so the image can be drawn first
 }
 
 // Keep downloaded frames up to this many bytes of pixels (least recently used go first).
@@ -345,6 +347,7 @@ const frameCache    = new Map<string, LoadedFrame>();            // finished fra
 let   frameCacheBytes = 0;
 const cacheListeners = new Set<() => void>();
 const framesLoading = new Map<string, Promise<LoadedFrame>>();   // requests in flight
+const metaLoading   = new Map<string, Promise<ImageMeta>>();
 
 function frameKey(imageUrl: string, target: ViewTarget): string
 {
@@ -392,11 +395,12 @@ export function frameCacheCapacity(fovArcsec: number): number
 }
 
 /**
- * Download one frame (pixels + metadata) for a target, stretched for display.
- * Results are cached in memory and concurrent requests for the same frame are shared,
- * so playback, scrubbing and prefetching never download a frame twice.
+ * Download one frame's pixels for a target, stretched for display. Results are cached
+ * in memory and concurrent requests for the same frame are shared, so playback,
+ * scrubbing and prefetching never download a frame twice. The metadata is fetched
+ * separately (loadFrameMeta), so the image never waits for it.
  */
-export function loadFrame(imageUrl: string, target: ViewTarget): Promise<LoadedFrame>
+export function loadFrame(imageUrl: string, target: ViewTarget, priority: RequestPriority = 'auto'): Promise<LoadedFrame>
 {
     const key = frameKey(imageUrl, target);
 
@@ -408,14 +412,11 @@ export function loadFrame(imageUrl: string, target: ViewTarget): Promise<LoadedF
     if (pending)
         return pending;
 
-    const options = { sizeArcsec: target.fovArcsec };
     const request = (async () =>
     {
-        const cutout = await fetchCutout(imageUrl, target.ra, target.dec, options);
-        // The FITS file is cached on the server after the cutout, so this is quick.
-        const meta = await fetchImageMeta(imageUrl, target.ra, target.dec, options);
+        const cutout = await fetchCutout(imageUrl, target.ra, target.dec, { sizeArcsec: target.fovArcsec, priority });
 
-        const frame = { image: stretchForDisplay(cutout), meta };
+        const frame: LoadedFrame = { image: stretchForDisplay(cutout) };
         frameCache.set(key, frame);
         frameCacheBytes += frame.image.pixels.byteLength;
         while (frameCacheBytes > FRAME_CACHE_BUDGET_BYTES && frameCache.size > 1)
@@ -430,6 +431,34 @@ export function loadFrame(imageUrl: string, target: ViewTarget): Promise<LoadedF
 
     framesLoading.set(key, request);
     request.catch(() => undefined).finally(() => framesLoading.delete(key));
+    return request;
+}
+
+/**
+ * A frame's metadata (header, flags, stats). Kept on the cached frame once it arrives;
+ * concurrent requests are shared. Quick once the pixels are in: the backend has the file.
+ */
+export function loadFrameMeta(imageUrl: string, target: ViewTarget, priority: RequestPriority = 'auto'): Promise<ImageMeta>
+{
+    const key = frameKey(imageUrl, target);
+    const known = frameCache.get(key)?.meta;
+    if (known)
+        return Promise.resolve(known);
+
+    const pending = metaLoading.get(key);
+    if (pending)
+        return pending;
+
+    const request = fetchImageMeta(imageUrl, target.ra, target.dec, { sizeArcsec: target.fovArcsec, priority })
+        .then((meta) =>
+        {
+            const frame = frameCache.get(key);
+            if (frame)
+                frame.meta = meta;
+            return meta;
+        });
+    metaLoading.set(key, request);
+    request.catch(() => undefined).finally(() => metaLoading.delete(key));
     return request;
 }
 
@@ -500,8 +529,14 @@ function pumpPreloads(): void
 
         preloadActive++;
         const started = performance.now();
-        loadFrame(next.imageUrl, next.target)
-            .then(() => recordFrameTime(performance.now() - started))
+        // Low priority, so the browser serves the viewport's own image first. The metadata
+        // comes along too, so the sidebar is ready when playback reaches this frame.
+        loadFrame(next.imageUrl, next.target, 'low')
+            .then(() =>
+            {
+                recordFrameTime(performance.now() - started);
+                return loadFrameMeta(next.imageUrl, next.target, 'low');
+            })
             .catch(() => undefined)   // shown later if the user lands on this frame
             .finally(() =>
             {
@@ -512,8 +547,8 @@ function pumpPreloads(): void
 }
 
 /**
- * Load the frame the user is looking at. Same as loadFrame, but new background
- * downloads wait until it arrives, so it isn't stuck behind them.
+ * Load the frame the user is looking at. Same as loadFrame, but at high priority, and
+ * new background downloads wait until it arrives, so it isn't stuck behind them.
  */
 export async function loadFrameNow(imageUrl: string, target: ViewTarget): Promise<LoadedFrame>
 {
@@ -525,7 +560,7 @@ export async function loadFrameNow(imageUrl: string, target: ViewTarget): Promis
     const started = performance.now();
     try
     {
-        const frame = await loadFrame(imageUrl, target);
+        const frame = await loadFrame(imageUrl, target, 'high');
         recordFrameTime(performance.now() - started);
         return frame;
     }
@@ -615,7 +650,7 @@ function loadAux(key: string, url: string, toDisplay: (raw: Image) => Image): Pr
 
     const request = (async () =>
     {
-        const res = await fetch(url);
+        const res = await fetch(url, { priority: 'high' });   // only ever requested to be shown in the viewport
         await checkResponse(res, 'Image');
         const width  = Number(res.headers.get('X-Width'));
         const height = Number(res.headers.get('X-Height'));

@@ -46,7 +46,7 @@ function nearestDetector(detectors: { detector: number, minUm: number, maxUm: nu
     return detectors.reduce((best, d) => (distance(d) < distance(best) ? d : best)).detector
 }
 
-export function useFrames(target: ViewTarget, initial: { wavelengthUm?: number, frameId?: string } = {})
+export function useFrames(target: ViewTarget, initial: { wavelengthUm?: number, frameId?: string, autoplay?: boolean } = {})
 {
     const { ra, dec, fovArcsec } = target
     const searchKey = `${ra}|${dec}`
@@ -382,7 +382,7 @@ export function useFrames(target: ViewTarget, initial: { wavelengthUm?: number, 
 
     // -- Playback --
 
-    const [playing, setPlaying] = useState(false)
+    const [playing, setPlaying] = useState(initial.autoplay ?? false)   // ?autoplay=1 starts playing
     const [loop, setLoop]       = useState(true)
     const [speedFps, setSpeedFps] = useState(1)
 

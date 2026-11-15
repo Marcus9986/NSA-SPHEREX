@@ -6,12 +6,12 @@ import ViewModeBar from './ViewModeBar';
 import BodyOverlay, { fieldPosition, isLikelyVisible } from './BodyOverlay';
 import MeasureOverlay, { ObjectMarker, type Measurement } from './MeasureOverlay';
 import type { Layer } from '../processing';
-import { PIXEL_SCALE_ARCSEC, formatDec, formatRa, screenToImage, skyFromStandard, type SkyPoint } from '../sky';
+import { PIXEL_SCALE_ARCSEC, formatAngle, formatDec, formatRa, screenToImage, skyFromStandard, type SkyPoint } from '../sky';
 import type { ViewState } from '../renderer/index';
 import type { Image } from '../renderer/Image';
 import { DIFF_DISPLAY_SIGMA, SURVEYS, fetchSolarSystemBodies, getCachedDiff, getCachedFrame, getCachedSurvey, loadDiffImage,
-         loadFrameNow, loadSurveyImage,
-         type ResolvedObject, type SkyImage, type SolarSystemBody, type SpherexImage, type ViewMode, type ViewportImageInfo, type ViewTarget } from '../api/spherex';
+         loadFrameMeta, loadFrameNow, loadSurveyImage,
+         type LoadedFrame, type ResolvedObject, type SkyImage, type SolarSystemBody, type SpherexImage, type ViewMode, type ViewportImageInfo, type ViewTarget } from '../api/spherex';
 
 // Wait this long before downloading a frame that isn't cached, so dragging the
 // playhead across many frames only downloads the one it stops on.
@@ -39,6 +39,7 @@ type ViewportProps = {
     measuring?:   boolean               // the measure tool is selected: left-drag draws a ruler
     measurement?: Measurement | null
     onMeasurementChange?: (measurement: Measurement | null) => void
+    embed?:       boolean                 // embedded on another site: the image only, no overlays or controls
     located?:     ResolvedObject | null   // object found with the header search
     layers?:      Layer[]                 // post-processing stack, applied in order
 }
@@ -56,10 +57,16 @@ function shortDate(iso: string | null | undefined): string
     return iso ? iso.slice(0, 10) : 'unknown date';
 }
 
+/** "2025-11-01 08:38 UTC" from an ISO timestamp (the backend sends UTC). */
+function dateTime(iso: string | null | undefined): string
+{
+    return iso ? `${iso.slice(0, 16).replace('T', ' ')} UTC` : 'unknown';
+}
+
 export default function Viewport({ target, frame, frameIndex, frameCount, searching = false,
                                    viewMode, onViewModeChange, refFrame, refIndex, onImageInfo, onTargetChange,
                                    surveyImageId = null, measuring = false, measurement = null,
-                                   onMeasurementChange, located = null, layers = NO_LAYERS }: ViewportProps)
+                                   onMeasurementChange, located = null, layers = NO_LAYERS, embed = false }: ViewportProps)
 {
     // Why the difference / survey image couldn't be shown (the SPHEREx frame is shown instead).
     const [auxError, setAuxError] = useState<string | null>(null);
@@ -87,6 +94,9 @@ export default function Viewport({ target, frame, frameIndex, frameCount, search
 
     // Arcsec per pixel of the image on screen: 6.15 for SPHEREx frames, finer for survey images.
     const [imageScale, setImageScale] = useState(PIXEL_SCALE_ARCSEC);
+    // The frame whose image is on screen: the previous image stays up while the next one
+    // loads, so the embed's stamp follows this rather than `frame`.
+    const [shownFrame, setShownFrame] = useState<SpherexImage | null>(null);
 
     // Same for what the pointer handlers read while measuring.
     const measureRef = useRef({ measuring, target, onMeasurementChange, imageScale });
@@ -106,7 +116,12 @@ export default function Viewport({ target, frame, frameIndex, frameCount, search
     {
         let cancelled = false;
         const report = (info: ViewportImageInfo) => onImageInfoRef.current?.(info);
-        const draw   = (image: SkyImage) => { rendererRef.current?.setViewportImage(image); setImageScale(image.pixelScaleArcsec ?? PIXEL_SCALE_ARCSEC); };
+        const draw   = (image: SkyImage) =>
+        {
+            rendererRef.current?.setViewportImage(image);
+            setImageScale(image.pixelScaleArcsec ?? PIXEL_SCALE_ARCSEC);
+            setShownFrame(frame);
+        };
         const view   = { ra: rightAscension, dec: declination, fovArcsec: sizeArcsec };
 
         const needsAux = !!surveyId || (!!diffRef && !!frame);
@@ -131,6 +146,29 @@ export default function Viewport({ target, frame, frameIndex, frameCount, search
             ? { ra: rightAscension, dec: declination, sizeArcsec, index: frameIndex, totalImages: frameCount, image: frame }
             : null;
 
+        // The image is drawn as soon as its pixels are in; the metadata follows. Until it
+        // arrives the frame stays "loading", so the sidebar and playback wait for it.
+        const reportLoaded = (loaded: LoadedFrame) =>
+        {
+            if (!info || !frame)
+                return;
+            if (loaded.meta)
+            {
+                report({ ...info, status: 'loaded', meta: loaded.meta });
+                return;
+            }
+            report({ ...info, status: 'loading' });
+            loadFrameMeta(frame.access_url, view)
+                .then((meta) => { if (!cancelled) report({ ...info, status: 'loaded', meta }); })
+                .catch((error) =>
+                {
+                    // The image is fine without it; the sidebar just has less to show.
+                    console.error(error);
+                    if (!cancelled)
+                        report({ ...info, status: 'loaded' });
+                });
+        };
+
         // Everything already downloaded: draw straight away.
         const cachedFrame = frame ? getCachedFrame(frame.access_url, view) : undefined;
         const auxImage    = needsAux ? cachedAux() : undefined;
@@ -139,10 +177,10 @@ export default function Viewport({ target, frame, frameIndex, frameCount, search
             const image = auxImage ?? cachedFrame?.image;
             if (image)
                 draw(image);
-            if (info && cachedFrame)
-                report({ ...info, status: 'loaded', meta: cachedFrame.meta });
+            if (cachedFrame)
+                reportLoaded(cachedFrame);
             setFrameLoading(false);
-            return;
+            return () => { cancelled = true; };
         }
 
         // Report "loading" until what's on screen matches, so playback waits for it.
@@ -152,30 +190,45 @@ export default function Viewport({ target, frame, frameIndex, frameCount, search
 
         const timer = setTimeout(async () =>
         {
+            // The frame and the difference / survey image download at the same time.
+            // (Both are awaited below; the empty catches only stop a rejection being
+            // reported as unhandled while the other one is still being waited for.)
+            const framePromise = frame ? loadFrameNow(frame.access_url, view) : null;
+            const auxPromise   = needsAux ? loadAux() : null;
+            framePromise?.catch(() => undefined);
+            auxPromise?.catch(() => undefined);
+
+            let drawn = false;
+            if (auxPromise)
+            {
+                try
+                {
+                    const image = await auxPromise;
+                    if (cancelled)
+                        return;
+                    draw(image);
+                    drawn = true;
+                    setFrameLoading(false);
+                }
+                catch (error)
+                {
+                    // Fall back to the SPHEREx frame and say why.
+                    if (cancelled)
+                        return;
+                    setAuxError(error instanceof Error ? error.message : String(error));
+                }
+            }
+
             try
             {
-                const loaded = frame ? await loadFrameNow(frame.access_url, view) : null;
-                let image = loaded?.image;
-                if (needsAux)
-                {
-                    try
-                    {
-                        image = await loadAux();
-                    }
-                    catch (error)
-                    {
-                        // Fall back to the SPHEREx frame and say why.
-                        if (!cancelled)
-                            setAuxError(error instanceof Error ? error.message : String(error));
-                    }
-                }
+                const loaded = framePromise ? await framePromise : null;
                 if (cancelled)
                     return;
-                if (image)
-                    draw(image);
-                if (info && loaded)
-                    report({ ...info, status: 'loaded', meta: loaded.meta });
+                if (loaded && !drawn)
+                    draw(loaded.image);
                 setFrameLoading(false);
+                if (loaded)
+                    reportLoaded(loaded);
             }
             catch (error)
             {
@@ -464,13 +517,26 @@ export default function Viewport({ target, frame, frameIndex, frameCount, search
                 />
             )}
 
-            {cursorSky && (
+            {cursorSky && !embed && (
                 <div className="viewport-cursor" aria-live="off">
                     <span><span className="viewport-cursor-key">RA</span>{formatRa(cursorSky.ra)}</span>
                     <span><span className="viewport-cursor-key">Dec</span>{formatDec(cursorSky.dec)}</span>
                     <span className="viewport-cursor-deg">
                         {cursorSky.ra.toFixed(5)}°, {cursorSky.dec >= 0 ? '+' : ''}{cursorSky.dec.toFixed(5)}°
                     </span>
+                </div>
+            )}
+
+            {/* Embedded: what the image is, since none of the app's panels are there to say. */}
+            {embed && shownFrame && (
+                <div className="viewport-cursor viewport-stamp" aria-label="Image details">
+                    <span><span className="viewport-cursor-key">RA</span>{formatRa(rightAscension)}</span>
+                    <span><span className="viewport-cursor-key">Dec</span>{formatDec(declination)}</span>
+                    <span><span className="viewport-cursor-key">FOV</span>{formatAngle(sizeArcsec)}</span>
+                    {shownFrame.wavelength_um != null && (
+                        <span><span className="viewport-cursor-key">λ</span>{shownFrame.wavelength_um.toFixed(3)} µm</span>
+                    )}
+                    <span><span className="viewport-cursor-key">Date</span>{dateTime(shownFrame.time_start)}</span>
                 </div>
             )}
 
@@ -493,31 +559,36 @@ export default function Viewport({ target, frame, frameIndex, frameCount, search
                 />
             )}
 
-            {/* Sky gizmo in the top-right corner... */}
-            <div className="viewport-gizmo">
-                <SkyGizmo ra={rightAscension} dec={declination} fovArcsec={sizeArcsec} onTarget={onTargetChange}
-                          measurement={measurement} />
-            </div>
+            {/* Not when embedded: there the image is shown on its own. */}
+            {!embed && (
+                <>
+                    {/* Sky gizmo in the top-right corner... */}
+                    <div className="viewport-gizmo">
+                        <SkyGizmo ra={rightAscension} dec={declination} fovArcsec={sizeArcsec} onTarget={onTargetChange}
+                                  measurement={measurement} />
+                    </div>
 
-            {/* ...and the view-mode buttons stacked up from the bottom-right corner. */}
-            <div className="viewport-modes">
-                <ViewModeBar
-                    mode={viewMode}
-                    onChange={onViewModeChange}
-                    diffAvailable={frameCount > 1}
-                    showBodies={showBodies}
-                    onToggleBodies={() => setShowBodies((v) => !v)}
-                    bodiesStatus={
-                        !(viewMode === 'spherex' || viewMode === 'diff') ? 'unavailable'
-                        : !showBodies ? 'off'
-                        : !currentBodies ? 'loading'
-                        : currentBodies.error ? 'error'
-                        : 'ready'
-                    }
-                    bodiesCount={bodiesInField.length}
-                    bodiesVisible={visibleBodies}
-                />
-            </div>
+                    {/* ...and the view-mode buttons stacked up from the bottom-right corner. */}
+                    <div className="viewport-modes">
+                        <ViewModeBar
+                            mode={viewMode}
+                            onChange={onViewModeChange}
+                            diffAvailable={frameCount > 1}
+                            showBodies={showBodies}
+                            onToggleBodies={() => setShowBodies((v) => !v)}
+                            bodiesStatus={
+                                !(viewMode === 'spherex' || viewMode === 'diff') ? 'unavailable'
+                                : !showBodies ? 'off'
+                                : !currentBodies ? 'loading'
+                                : currentBodies.error ? 'error'
+                                : 'ready'
+                            }
+                            bodiesCount={bodiesInField.length}
+                            bodiesVisible={visibleBodies}
+                        />
+                    </div>
+                </>
+            )}
 
             {viewMode !== 'spherex' && (
                 <div className="viewport-caption" role="status">

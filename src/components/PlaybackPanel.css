@@ -704,3 +704,85 @@
 .pb-dim-text {
     color: #64748b;
 }
+
+/* Export panel: floats above the export button (portalled to <body>). */
+.pb-export {
+    position: fixed;
+    z-index: 50;
+    width: 440px;
+    max-width: calc(100vw - 32px);
+    box-sizing: border-box;
+    padding: 12px 14px;
+    border: 1px solid rgba(148, 163, 184, 0.4);
+    border-radius: 10px;
+    background: #0f172a;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+    color: #e2e8f0;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.pb-export-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.pb-export-hint {
+    margin: 6px 0 8px;
+    color: #94a3b8;
+}
+
+.pb-export-warning {
+    margin: 8px 0 0;
+    color: #fbbf24;
+}
+
+.pb-export-code {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    resize: none;
+    border: 1px solid #475569;
+    border-radius: 6px;
+    background: #020617;
+    color: #f8fafc;
+    padding: 6px 8px;
+    font: 11px/1.45 var(--mono);
+}
+
+.pb-export-code:focus {
+    outline: none;
+    border-color: rgba(96, 165, 250, 0.8);
+}
+
+.pb-export-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.pb-export-link {
+    color: #93c5fd;
+}
+
+.pb-export-copy {
+    border: 1px solid rgba(96, 165, 250, 0.8);
+    border-radius: 6px;
+    background: rgba(37, 99, 235, 0.3);
+    color: #f8fafc;
+    padding: 5px 12px;
+    font: 700 11px var(--sans);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.pb-export-copy:hover,
+.pb-export-copy:focus-visible {
+    background: rgba(37, 99, 235, 0.5);
+    outline: none;
+}

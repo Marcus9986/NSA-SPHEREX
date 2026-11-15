@@ -1,6 +1,8 @@
+import json
 import math
 import os
 import random
+import tempfile
 import threading
 import time
 import urllib.error
@@ -86,12 +88,59 @@ def _datetime_to_mjd(value: datetime) -> float:
     return float(Time(value).utc.mjd)
 
 
+# IRSA's SIA search takes ~20 s per position (measured), so results are also kept on disk
+# for a day: revisiting a position is instant even after the backend restarts (which
+# `--reload` does on every code change). Keyed by the collections too, so changing
+# SPHEREX_COLLECTIONS doesn't serve old results.
+SEARCH_CACHE_DIR = os.path.join(tempfile.gettempdir(), "spherex-search-cache")
+SEARCH_CACHE_MAX_AGE_S = 24 * 3600
+
+
+def _search_cache_path(ra: float, dec: float, radius_arcsec: float) -> str:
+    name = f"{'+'.join(SPHEREX_COLLECTIONS)}_{ra:.7f}_{dec:+.7f}_{radius_arcsec:g}.json"
+    return os.path.join(SEARCH_CACHE_DIR, name)
+
+
+def _read_search_cache(path: str) -> tuple[dict, ...] | None:
+    try:
+        if time.time() - os.path.getmtime(path) > SEARCH_CACHE_MAX_AGE_S:
+            return None
+        with open(path, encoding="utf-8") as f:
+            images = json.load(f)
+    except (OSError, ValueError):
+        return None  # missing, expired or unreadable: query IRSA instead
+    for im in images:
+        im["_center"] = tuple(im["_center"])  # JSON has no tuples
+    return tuple(images)
+
+
+def _write_search_cache(path: str, images: tuple[dict, ...]) -> None:
+    """Save atomically (a half-written file is never read), and drop expired entries."""
+    try:
+        os.makedirs(SEARCH_CACHE_DIR, exist_ok=True)
+        tmp = f"{path}.{threading.get_ident()}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(images, f)
+        os.replace(tmp, path)
+        now = time.time()
+        for entry in os.scandir(SEARCH_CACHE_DIR):
+            if now - entry.stat().st_mtime > SEARCH_CACHE_MAX_AGE_S:
+                os.remove(entry.path)
+    except OSError:
+        pass  # the cache is only an optimisation
+
+
 @lru_cache(maxsize=64)
 def _query_images(ra: float, dec: float, radius_arcsec: float) -> tuple[dict, ...]:
     """All SPHEREx images covering a position, sorted by time.
 
-    Cached so paging and re-filtering from the frontend doesn't hit IRSA again.
+    Cached (in memory and on disk) so paging, re-filtering and revisits don't hit IRSA again.
     """
+    cache_path = _search_cache_path(ra, dec, radius_arcsec)
+    cached = _read_search_cache(cache_path)
+    if cached is not None:
+        return cached
+
     coord = SkyCoord(ra, dec, unit="deg")
     max_retries = 5
     for attempt in range(max_retries):
@@ -133,7 +182,9 @@ def _query_images(ra: float, dec: float, radius_arcsec: float) -> tuple[dict, ..
             }
         )
     images.sort(key=lambda im: (im["mjd_start"], im["detector"]))
-    return tuple(images)
+    result = tuple(images)
+    _write_search_cache(cache_path, result)
+    return result
 
 
 # --- Wavelength at the target, estimated without downloading each image ---

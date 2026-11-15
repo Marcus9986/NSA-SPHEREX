@@ -7,9 +7,12 @@ import { MAX_FOV_ARCSEC, MIN_FOV_ARCSEC, parseCoordinate } from './api/spherex'
  *   fov         field of view in arcseconds
  *   wavelength  micrometres; snapped to the nearest one an image was taken at
  *   frame       observation ID of the frame shown (e.g. 2025W18_1B_0179_2)
+ *   embed=1     show only the viewport and its image (for <iframe> embeds)
+ *   autoplay=1  start playing the timeline straight away
  * Missing or invalid values are ignored, so the app's defaults apply.
  */
-export type UrlState = { ra?: number, dec?: number, fovArcsec?: number, wavelengthUm?: number, frameId?: string }
+export type UrlState = { ra?: number, dec?: number, fovArcsec?: number, wavelengthUm?: number, frameId?: string,
+                         embed?: boolean, autoplay?: boolean }
 
 export function readUrlState(search = window.location.search): UrlState
 {
@@ -38,6 +41,13 @@ export function readUrlState(search = window.location.search): UrlState
     const frame = params.get('frame')?.trim()
     if (frame)
         state.frameId = frame
+
+    // Flags: "1" or "true" turns them on.
+    const flag = (key: string) => ['1', 'true'].includes(params.get(key)?.trim().toLowerCase() ?? '')
+    if (flag('embed'))
+        state.embed = true
+    if (flag('autoplay'))
+        state.autoplay = true
 
     return state
 }
