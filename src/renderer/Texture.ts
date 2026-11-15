@@ -57,25 +57,30 @@ export function createTexture(gl:     WebGL2RenderingContext,
     return { width, height, slot: currTextureSlot++, handle };
 }
 
+export function deleteTexture(gl: WebGL2RenderingContext, texture: Texture): void
+{
+    gl.deleteTexture(texture.handle);
+}
+
 export function bufferTexture(gl: WebGL2RenderingContext,
                               texture: Texture,
                               image: Image
                              ): void
 {
 
-    gl.activeTexture(gl.TEXTURE0 + texture.slot);
-    gl.bindTexture(gl.TEXTURE_2D, texture.handle);
+    bindTexture(gl, texture);
+
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 
     if ((image.width !== texture.width) || (image.height !== texture.height))
     {
-        gl.texSubImage2D(
+        gl.texImage2D(
             gl.TEXTURE_2D,
             0,
+            gl.R32F,
+            image.width,
+            image.height,
             0,
-            0,
-            texture.width,
-            texture.height,
             gl.RED,
             gl.FLOAT,
             image.pixels
@@ -104,6 +109,7 @@ export function bufferTexture(gl: WebGL2RenderingContext,
 
 export function bindTexture(gl: WebGL2RenderingContext, texture: Texture): void
 {
+    gl.activeTexture(gl.TEXTURE0 + texture.slot);
     gl.bindTexture(gl.TEXTURE_2D, texture.handle);
 }
 

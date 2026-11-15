@@ -5,9 +5,8 @@ export interface Image
     pixels: Float32Array
 }
 
-export function defaultImage(): Image
+export function defaultImage(width: number, height: number): Image
 {
-    const width = 300, height = 200;
     const pixels = new Float32Array(width * height);
 
     for (let y = 0; y < height; y++)

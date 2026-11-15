@@ -32,8 +32,6 @@ export function createShader(gl: WebGL2RenderingContext, vertexSource: string, f
     {
         const info = gl.getActiveAttrib(program, i);
 
-        console.log(`Attribute ${i}:`, info?.name, info?.size, info?.type);
-
         if (info)
         {
             const location = gl.getAttribLocation(program, info.name);
@@ -47,8 +45,6 @@ export function createShader(gl: WebGL2RenderingContext, vertexSource: string, f
     {
         const info = gl.getActiveUniform(program, i);
 
-        console.log(`Uniform ${i}:`, info?.name, info?.size, info?.type);
-
         if (info)
         {
             const location = gl.getUniformLocation(program, info.name);
@@ -60,6 +56,11 @@ export function createShader(gl: WebGL2RenderingContext, vertexSource: string, f
     }
 
     return { handle: program, attributes, uniforms };
+}
+
+export function deleteShader(gl: WebGL2RenderingContext, shader: Shader): void
+{
+    gl.deleteProgram(shader.handle);
 }
 
 export function bindShader(gl: WebGL2RenderingContext, shader: Shader): void

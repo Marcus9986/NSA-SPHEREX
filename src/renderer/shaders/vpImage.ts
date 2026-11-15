@@ -6,13 +6,17 @@ export const vpImageShaderVS = `#version 300 es
 
     out vec2 uTexCoord;
 
-    uniform float uAspectRatio;
+    uniform float uViewportAspectRatio;
+    uniform float uImageAspectRatio;
 
     void main()
     {
         uTexCoord = aTexCoord;
 
-        gl_Position = vec4(aPosition.x * uAspectRatio, aPosition.y, 0.0, 1.0);
+        float aspectRatio = uViewportAspectRatio * uImageAspectRatio;
+        vec2 position = vec2(aPosition.x * aspectRatio, aPosition.y);
+
+        gl_Position = vec4(position, 0.0, 1.0);
     }`;
 
 export const vpImageShaderFS = `#version 300 es

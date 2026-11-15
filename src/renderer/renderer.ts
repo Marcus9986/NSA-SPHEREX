@@ -1,7 +1,9 @@
 import type { PointerPosition, RendererHandle } from './Types';
 
-import { type Texture, createTexture, bufferTexture, bindTexture } from './Texture';
-import { type Shader, createShader, bindShader, setShaderUniform1f, setShaderUniform1i } from './Shader';
+import { type Texture, createTexture, deleteTexture,
+         bufferTexture, bindTexture                  } from './Texture';
+import { type Shader, createShader, deleteShader, bindShader,
+        setShaderUniform1f, setShaderUniform1i       } from './Shader';
 import { type Image, defaultImage } from './Image';
 
 import { vpImageShaderVS, vpImageShaderFS } from './shaders/vpImage';
@@ -13,7 +15,7 @@ export class WebGLRenderer implements RendererHandle
     private vpImage: Image;
     
     private vpImageTexture: Texture;
-    private vpImageShader:  Shader;
+    private vpImageShader: Shader;
 
     private vao: WebGLVertexArrayObject;
     private vbo: WebGLBuffer;
@@ -21,6 +23,8 @@ export class WebGLRenderer implements RendererHandle
 
     public constructor(canvas: HTMLCanvasElement)
     {
+        /* Initialize WebGL2 context. */
+
         const gl = canvas.getContext("webgl2", {
             antialias: false
         });
@@ -29,20 +33,23 @@ export class WebGLRenderer implements RendererHandle
         {
             throw new Error("Failed to initialize WebGL2");
         }
-
         this.gl = gl;
 
-        this.vpImage        = defaultImage();
+        /* Create a default image and corresponding texture. */
+
+        this.vpImage        = defaultImage(1920, 1080);
         this.vpImageTexture = createTexture(this.gl, this.vpImage.width, this.vpImage.height);
         bufferTexture(this.gl, this.vpImageTexture, this.vpImage);
 
         /* Create shaders and initialize uniforms */
 
-        const aspectRatio =  gl.drawingBufferHeight / gl.drawingBufferWidth;
+        const viewportAspectRatio = gl.drawingBufferWidth / gl.drawingBufferHeight;
+        const imageAspectRatio    = this.vpImage.width /this.vpImage.height;
 
         this.vpImageShader = createShader(this.gl, vpImageShaderVS, vpImageShaderFS);
-        setShaderUniform1f(gl, this.vpImageShader, "uAspectRatio", aspectRatio);
-        setShaderUniform1i(gl, this.vpImageShader, "uImage", this.vpImageTexture.slot);
+        setShaderUniform1f(gl, this.vpImageShader, "uViewportAspectRatio", viewportAspectRatio);
+        setShaderUniform1f(gl, this.vpImageShader, "uImageAspectRatio"   , imageAspectRatio);
+        setShaderUniform1i(gl, this.vpImageShader, "uImage"              , this.vpImageTexture.slot);
 
         /* Set up a textured quad for rendering the image to the viewport. */
 
@@ -79,43 +86,55 @@ export class WebGLRenderer implements RendererHandle
         gl.enableVertexAttribArray(posLoc);
         gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 4 * Float32Array.BYTES_PER_ELEMENT, 0);
         
-        const uvLoc  = 1;
-        gl.enableVertexAttribArray(uvLoc);
-        gl.vertexAttribPointer(uvLoc , 2, gl.FLOAT, false, 4 * Float32Array.BYTES_PER_ELEMENT, 2 * Float32Array.BYTES_PER_ELEMENT);
+        const texCoordLoc = 1;
+        gl.enableVertexAttribArray(texCoordLoc);
+        gl.vertexAttribPointer(texCoordLoc , 2, gl.FLOAT, false, 4 * Float32Array.BYTES_PER_ELEMENT, 2 * Float32Array.BYTES_PER_ELEMENT);
 
         gl.bindVertexArray(null);
 
         /* Set up the viewport. */
+
         this.resize();
     }
 
     public render(): void
     {
         const gl = this.gl;
+        gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
 
         bindTexture(this.gl, this.vpImageTexture);
         bindShader(this.gl, this.vpImageShader);
 
         gl.bindVertexArray(this.vao);
 
-        gl.drawElements(
-            gl.TRIANGLES,
-            6,
-            gl.UNSIGNED_SHORT,
-            0
-        );
+        gl.drawElements(gl.TRIANGLES,
+                        6,
+                        gl.UNSIGNED_SHORT,
+                        0);
 
         gl.bindVertexArray(null);
     }
 
-    public setImage(pixels: Float32Array, width: number, height: number): void
+    public setViewportImage(image: Image): void
     {
-        bufferTexture(this.gl, this.vpImageTexture, { width, height, pixels });
+        this.vpImage = image;
+        
+        const gl = this.gl;
+        const imageAspectRatio = this.vpImage.width / this.vpImage.height;
+        
+        bufferTexture(gl, this.vpImageTexture, image);
+        setShaderUniform1f(gl, this.vpImageShader , "uImageAspectRatio", imageAspectRatio);
+
+        this.render();
     }
 
     public terminate(): void
     {
         const gl = this.gl;
+
+        deleteShader(gl, this.vpImageShader);
+        deleteTexture(gl, this.vpImageTexture);
 
         gl.deleteVertexArray(this.vao);
         gl.deleteBuffer(this.vbo);
@@ -127,8 +146,7 @@ export class WebGLRenderer implements RendererHandle
         const gl     = this.gl;
         const canvas = gl.canvas as HTMLCanvasElement;
 
-        const dpr = window.devicePixelRatio || 1;
-
+        const dpr    = window.devicePixelRatio || 1;
         const width  = Math.max(1, Math.round(canvas.clientWidth  * dpr));
         const height = Math.max(1, Math.round(canvas.clientHeight * dpr));
 
@@ -140,8 +158,8 @@ export class WebGLRenderer implements RendererHandle
 
         gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
 
-        const aspectRatio =  gl.drawingBufferHeight / gl.drawingBufferWidth;
-        setShaderUniform1f(gl, this.vpImageShader, "uAspectRatio", aspectRatio);
+        const viewportAspectRatio =  gl.drawingBufferHeight / gl.drawingBufferWidth;
+        setShaderUniform1f(gl, this.vpImageShader, "uViewportAspectRatio", viewportAspectRatio);
 
         this.render();
     }
