@@ -1,129 +1,153 @@
-import { triangleShaders } from './shaders/triangle'
-import type { RendererHandle, ShaderSources } from './types'
+import type { PointerPosition, RendererHandle } from './Types';
 
-const compileShader = (gl: WebGL2RenderingContext, type: number, source: string) =>
+import { type Texture, createTexture, bufferTexture, bindTexture } from './Texture';
+import { type Shader, createShader, bindShader, setShaderUniform1f, setShaderUniform1i } from './Shader';
+import { type Image, defaultImage } from './Image';
+
+import { vpImageShaderVS, vpImageShaderFS } from './shaders/vpImage';
+
+export class WebGLRenderer implements RendererHandle
 {
-    const shader = gl.createShader(type)
-    if (!shader)
+    private readonly gl: WebGL2RenderingContext;
+
+    private vpImage: Image;
+    
+    private vpImageTexture: Texture;
+    private vpImageShader:  Shader;
+
+    private vao: WebGLVertexArrayObject;
+    private vbo: WebGLBuffer;
+    private ebo: WebGLBuffer;
+
+    public constructor(canvas: HTMLCanvasElement)
     {
-        throw new Error('Unable to create shader.')
+        const gl = canvas.getContext("webgl2", {
+            antialias: false
+        });
+
+        if (!gl)
+        {
+            throw new Error("Failed to initialize WebGL2");
+        }
+
+        this.gl = gl;
+
+        this.vpImage        = defaultImage();
+        this.vpImageTexture = createTexture(this.gl, this.vpImage.width, this.vpImage.height);
+        bufferTexture(this.gl, this.vpImageTexture, this.vpImage);
+
+        /* Create shaders and initialize uniforms */
+
+        const aspectRatio =  gl.drawingBufferHeight / gl.drawingBufferWidth;
+
+        this.vpImageShader = createShader(this.gl, vpImageShaderVS, vpImageShaderFS);
+        setShaderUniform1f(gl, this.vpImageShader, "uAspectRatio", aspectRatio);
+        setShaderUniform1i(gl, this.vpImageShader, "uImage", this.vpImageTexture.slot);
+
+        /* Set up a textured quad for rendering the image to the viewport. */
+
+        const vertices = new Float32Array([
+            -0.5, -0.5, 0.0, 0.0,
+             0.5, -0.5, 1.0, 0.0,
+            -0.5,  0.5, 0.0, 1.0,
+             0.5,  0.5, 1.0, 1.0,
+        ]);
+
+        const indices = new Uint16Array([
+            0, 1, 2,
+            2, 1, 3,
+        ]);
+
+        this.vao = gl.createVertexArray();
+        this.vbo = gl.createBuffer();
+        this.ebo = gl.createBuffer();
+
+        if (!this.vao || !this.vbo || !this.ebo)
+        {
+            throw new Error("Failed to create WebGL buffers");
+        }
+
+        gl.bindVertexArray(this.vao);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
+        gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ebo);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+
+        const posLoc = 0;
+        gl.enableVertexAttribArray(posLoc);
+        gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 4 * Float32Array.BYTES_PER_ELEMENT, 0);
+        
+        const uvLoc  = 1;
+        gl.enableVertexAttribArray(uvLoc);
+        gl.vertexAttribPointer(uvLoc , 2, gl.FLOAT, false, 4 * Float32Array.BYTES_PER_ELEMENT, 2 * Float32Array.BYTES_PER_ELEMENT);
+
+        gl.bindVertexArray(null);
+
+        /* Set up the viewport. */
+        this.resize();
     }
 
-    gl.shaderSource(shader, source)
-    gl.compileShader(shader)
-
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS))
+    public render(): void
     {
-        const log = gl.getShaderInfoLog(shader)
-        gl.deleteShader(shader)
-        throw new Error(log ?? 'Shader compilation failed.')
+        const gl = this.gl;
+
+        bindTexture(this.gl, this.vpImageTexture);
+        bindShader(this.gl, this.vpImageShader);
+
+        gl.bindVertexArray(this.vao);
+
+        gl.drawElements(
+            gl.TRIANGLES,
+            6,
+            gl.UNSIGNED_SHORT,
+            0
+        );
+
+        gl.bindVertexArray(null);
     }
 
-    return shader
-}
-
-const createProgram = (gl: WebGL2RenderingContext, shaders: ShaderSources) =>
-{
-    const program = gl.createProgram()
-    if (!program)
+    public setImage(pixels: Float32Array, width: number, height: number): void
     {
-        throw new Error('Unable to create WebGL program.')
+        bufferTexture(this.gl, this.vpImageTexture, { width, height, pixels });
     }
 
-    const vertexShader = compileShader(gl, gl.VERTEX_SHADER, shaders.vertex)
-    const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, shaders.fragment)
-
-    gl.attachShader(program, vertexShader)
-    gl.attachShader(program, fragmentShader)
-    gl.linkProgram(program)
-
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS))
+    public terminate(): void
     {
-        const log = gl.getProgramInfoLog(program)
-        gl.deleteProgram(program)
-        throw new Error(log ?? 'Program linking failed.')
+        const gl = this.gl;
+
+        gl.deleteVertexArray(this.vao);
+        gl.deleteBuffer(this.vbo);
+        gl.deleteBuffer(this.ebo);
     }
 
-    gl.deleteShader(vertexShader)
-    gl.deleteShader(fragmentShader)
+    public resize(): void
+    {
+        const gl     = this.gl;
+        const canvas = gl.canvas as HTMLCanvasElement;
 
-    return program
+        const dpr = window.devicePixelRatio || 1;
+
+        const width  = Math.max(1, Math.round(canvas.clientWidth  * dpr));
+        const height = Math.max(1, Math.round(canvas.clientHeight * dpr));
+
+        if ((canvas.width !== width) || (canvas.height !== height))
+        {
+            canvas.width  = width;
+            canvas.height = height;
+        }
+
+        gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+
+        const aspectRatio =  gl.drawingBufferHeight / gl.drawingBufferWidth;
+        setShaderUniform1f(gl, this.vpImageShader, "uAspectRatio", aspectRatio);
+
+        this.render();
+    }
 }
 
 export function createRenderer(canvas: HTMLCanvasElement): RendererHandle
 {
-    const gl = canvas.getContext('webgl2')
-    if (!gl)
-    {
-        throw new Error('WebGL2 is not supported in this browser.')
-    }
-
-    const program = createProgram(gl, triangleShaders)
-    const triangleVertices = new Float32Array([
-        -0.5, -0.5,
-        0.5, -0.5,
-        0.0, 0.75,
-    ])
-
-    const buffer = gl.createBuffer()
-    if (!buffer)
-    {
-        throw new Error('Unable to create buffer.')
-    }
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
-    gl.bufferData(gl.ARRAY_BUFFER, triangleVertices, gl.STATIC_DRAW)
-
-    const positionLocation = gl.getAttribLocation(program, 'aPosition')
-    const aspectLocation = gl.getUniformLocation(program, 'uAspect')
-    gl.useProgram(program)
-    gl.enableVertexAttribArray(positionLocation)
-    gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0)
-
-    const resize = () =>
-    {
-        const ratio = window.devicePixelRatio || 1
-        const rect = canvas.getBoundingClientRect()
-        const width = Math.max(1, Math.floor(rect.width * ratio))
-        const height = Math.max(1, Math.floor(rect.height * ratio))
-
-        if (canvas.width !== width || canvas.height !== height)
-        {
-            canvas.width = width
-            canvas.height = height
-        }
-
-        gl.viewport(0, 0, canvas.width, canvas.height)
-        render()
-    }
-
-    const render = () =>
-    {
-        const aspectX = canvas.width / Math.max(canvas.height, 1)
-        gl.useProgram(program)
-        if (aspectLocation)
-        {
-            gl.uniform2f(aspectLocation, aspectX, 1.0)
-        }
-
-        gl.clearColor(0.06, 0.08, 0.12, 1.0)
-        gl.clear(gl.COLOR_BUFFER_BIT)
-        gl.drawArrays(gl.TRIANGLES, 0, 3)
-    }
-
-    const observer = new ResizeObserver(() => resize())
-    observer.observe(canvas)
-
-    resize()
-
-    return {
-        render,
-        resize,
-        destroy: () =>
-        {
-            observer.disconnect()
-            gl.deleteBuffer(buffer)
-            gl.deleteProgram(program)
-        },
-    }
+    return new WebGLRenderer(canvas);
 }

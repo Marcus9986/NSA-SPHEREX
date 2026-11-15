@@ -1,10 +1,10 @@
-export type RendererHandle = {
-    render: () => void
-    resize: () => void
-    destroy: () => void
+export type PointerPosition = {
+    x: number
+    y: number
 }
 
-export type ShaderSources = {
-    vertex: string
-    fragment: string
+export type RendererHandle = {
+    render:    () => void;
+    terminate: () => void;
+    setImage:  (pixels: Float32Array, width: number, height: number) => void;
 }

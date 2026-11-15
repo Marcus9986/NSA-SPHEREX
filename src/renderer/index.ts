@@ -1,3 +1,5 @@
-export { createRenderer } from './renderer'
-export type { RendererHandle, ShaderSources } from './types'
-export { triangleShaders } from './shaders/triangle'
+export { WebGLRenderer, createRenderer } from './Renderer'
+export type {
+    PointerPosition,
+    RendererHandle,
+} from './Types'

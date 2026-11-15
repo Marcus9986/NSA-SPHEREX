@@ -1,34 +1,46 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react';
 
-import { createRenderer } from '../renderer'
+import { WebGLRenderer } from '../renderer/Index';
 
 export default function Viewport()
 {
-    const canvasRef = useRef<HTMLCanvasElement | null>(null)
+    const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
     useEffect(() =>
     {
-        const canvas = canvasRef.current
+        const canvas = canvasRef.current;
         if (!canvas)
         {
-            return
+            return;
         }
 
         try
         {
-            const renderer = createRenderer(canvas)
-            return () => renderer.destroy()
+            const renderer = new WebGLRenderer(canvas);
+            const observer = new ResizeObserver(() =>
+                {
+                    renderer.resize();
+                });
+            
+            observer.observe(canvas);
+            renderer.render();
+
+            return () =>
+            {
+                observer.disconnect();
+                renderer.terminate();
+            };
         }
         catch (error)
         {
-            console.error(error)
-            return undefined
+            console.error(error);
+            return undefined;
         }
-    }, [])
+    }, []);
 
     return (
         <div className="viewport-root">
             <canvas ref={canvasRef} className="viewport-canvas" />
         </div>
-    )
+    );
 }
