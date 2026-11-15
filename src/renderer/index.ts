@@ -1,5 +1,6 @@
-export { WebGLRenderer, createRenderer } from './Renderer'
+export { WebGLRenderer, createRenderer } from './renderer'
 export type {
     PointerPosition,
     RendererHandle,
-} from './Types'
+    ViewState,
+} from './types'

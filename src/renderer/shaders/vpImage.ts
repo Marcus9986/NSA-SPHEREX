@@ -8,13 +8,15 @@ export const vpImageShaderVS = `#version 300 es
 
     uniform float uViewportAspectRatio;
     uniform float uImageAspectRatio;
+    uniform float uZoom;   // 1 = default size
+    uniform vec2  uPan;    // offset of the image centre, in clip space (-1..1)
 
     void main()
     {
         uTexCoord = aTexCoord;
 
         float aspectRatio = uViewportAspectRatio * uImageAspectRatio;
-        vec2 position = vec2(aPosition.x * aspectRatio, aPosition.y);
+        vec2 position = vec2(aPosition.x * aspectRatio, aPosition.y) * uZoom + uPan;
 
         gl_Position = vec4(position, 0.0, 1.0);
     }`;
@@ -26,10 +28,11 @@ export const vpImageShaderFS = `#version 300 es
     
     out vec4 outColor;
     
-    uniform sampler2D uImage;
+    uniform sampler2D uImage;   // the source image, or the post-processing result
+    uniform bool uGrey;         // single-channel source: show red as grey
 
     void main()
     {
-        float brightness = texture(uImage, uTexCoord).r;
-        outColor = vec4(vec3(brightness), 1.0);
+        vec4 s = texture(uImage, uTexCoord);
+        outColor = vec4(uGrey ? vec3(s.r) : clamp(s.rgb, 0.0, 1.0), 1.0);
     }`;

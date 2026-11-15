@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { frameCacheCapacity, isFrameCached, retainFrames, searchImages, setPreloadQueue, subscribeFrameCache,
-         type Epoch, type SpherexImage, type ViewportImageInfo, type ViewTarget } from '../api/spherex'
+import { SURVEYS, fetchSurveyImages, frameCacheCapacity, isFrameCached, retainFrames, searchImages, setPreloadQueue, subscribeFrameCache,
+         type SurveyImage,
+         type Epoch, type SpherexImage, type ViewMode, type ViewportImageInfo, type ViewTarget } from '../api/spherex'
 
 export const WAVELENGTH_TOLERANCES_UM = [0.01, 0.02, 0.05, 0.1]
 export const PLAYBACK_SPEEDS_FPS      = [0.5, 1, 2, 4]
@@ -250,6 +251,98 @@ export function useFrames(target: ViewTarget)
     const setRangeEnd = (index: number) =>
         setRange({ frames, start: rangeStart, end: Math.max(Math.min(Math.round(index), lastIndex), rangeStart) })
 
+    // -- View mode: SPHEREx frames, their difference from the reference frame (the
+    //    first frame of the loop range), or another telescope's image of the field --
+
+    const [viewMode, setViewMode] = useState<ViewMode>('spherex')
+
+    // -- Other telescopes: their own (archival) images of the target, usually just one.
+    //    In a survey view the timeline shows these instead of the SPHEREx frames. --
+    const surveyId = viewMode.startsWith('survey:') ? viewMode.slice('survey:'.length) : null
+    const surveyKey = surveyId ? `${surveyId}|${ra}|${dec}` : ''
+    const [surveyList, setSurveyList] = useState<{ key: string, images: SurveyImage[] | null, error?: string } | null>(null)
+    const [surveyPick, setSurveyPick] = useState<{ key: string, index: number } | null>(null)
+
+    useEffect(() =>
+    {
+        if (!surveyId)
+            return
+        let cancelled = false
+        fetchSurveyImages(surveyId, ra, dec)
+            .then((images) => { if (!cancelled) setSurveyList({ key: surveyKey, images }) })
+            .catch((error) => { if (!cancelled) setSurveyList({ key: surveyKey, images: null, error: String(error?.message ?? error) }) })
+        return () => { cancelled = true }
+    }, [surveyId, surveyKey, ra, dec])
+
+    const surveyImages = surveyList?.key === surveyKey ? surveyList.images : null
+    const surveyCount  = surveyImages?.length ?? 0
+    const surveyIndex  = surveyPick?.key === surveyKey ? Math.min(surveyPick.index, Math.max(surveyCount - 1, 0)) : 0
+    const survey = surveyId ? {
+        id:      surveyId,
+        info:    SURVEYS.find((sv) => sv.id === surveyId) ?? null,
+        status:  (surveyList?.key !== surveyKey ? 'loading' : surveyList.error ? 'error' : 'ready') as 'loading' | 'error' | 'ready',
+        error:   surveyList?.key === surveyKey ? surveyList.error : undefined,
+        images:  surveyImages ?? [],
+        index:   surveyIndex,
+        image:   surveyImages?.[surveyIndex] ?? null,
+        setIndex: (index: number) =>
+            setSurveyPick({ key: surveyKey, index: Math.min(Math.max(Math.round(index), 0), Math.max(surveyCount - 1, 0)) }),
+    } : null
+
+    // Reference frame for the difference view. Remembered as an image (like the current
+    // frame) so it survives filter changes; until one is chosen, or if it drops out of
+    // the frame list, it's the first frame of the loop range.
+    const [refSelected, setRefSelected] = useState<SpherexImage | null>(null)
+    const refIndex = useMemo(() =>
+    {
+        if (!refSelected)
+            return rangeStart
+        const index = frames.findIndex((f) => f.access_url === refSelected.access_url)
+        return index >= 0 ? index : rangeStart
+    }, [frames, refSelected, rangeStart])
+    const refFrame = frames[refIndex] ?? null
+
+    // In difference mode the reference and the current frame must differ (a frame minus
+    // itself is blank), so neither marker may land on the other: whichever one is moving
+    // skips past the other in the direction it's travelling.
+    const diffActive = viewMode === 'diff' && frames.length > 1
+
+    const skipPast = useCallback((index: number, from: number, blocked: number) =>
+    {
+        const n = frames.length
+        let i = Math.min(Math.max(Math.round(index), 0), n - 1)
+        if (diffActive && i === blocked)
+        {
+            const direction = i >= from ? 1 : -1
+            const beyond = i + direction
+            i = beyond >= 0 && beyond < n ? beyond : i - direction
+        }
+        return i
+    }, [frames.length, diffActive])
+
+    const setRefIndex = useCallback((index: number) =>
+    {
+        if (frames.length === 0)
+            return
+        setRefSelected(frames[skipPast(index, refIndex, frameIndex)])
+    }, [frames, skipPast, refIndex, frameIndex])
+
+    /** Move the current frame (what the timeline, typing and dragging use). */
+    const setCurrentFrameIndex = useCallback((index: number) =>
+    {
+        if (frames.length === 0)
+            return
+        setFrameIndex(skipPast(index, frameIndex, refIndex))
+    }, [frames.length, skipPast, frameIndex, refIndex, setFrameIndex])
+
+    // Safety net for anything else that lines them up (entering difference mode with the
+    // playhead on the range start, a filter change, ...): nudge the playhead off.
+    useEffect(() =>
+    {
+        if (diffActive && frameIndex === refIndex)
+            setFrameIndex(frameIndex + 1 < frames.length ? frameIndex + 1 : frameIndex - 1)
+    }, [diffActive, frameIndex, refIndex, frames.length, setFrameIndex])
+
     // -- Playback --
 
     const [playing, setPlaying] = useState(false)
@@ -261,13 +354,24 @@ export function useFrames(target: ViewTarget)
     {
         if (frames.length === 0)
             return
-        let next = frameIndex + delta
-        if (next > rangeEnd)
-            next = loop ? rangeStart : rangeEnd
-        if (next < rangeStart)
-            next = loop ? rangeEnd : rangeStart
+        const advance = (from: number) =>
+        {
+            let next = from + delta
+            if (next > rangeEnd)
+                next = loop ? rangeStart : rangeEnd
+            if (next < rangeStart)
+                next = loop ? rangeEnd : rangeStart
+            return next
+        }
+        let next = advance(frameIndex)
+        if (diffActive && next === refIndex)
+        {
+            // Skip the reference frame; if there's nowhere else to go, stay put.
+            const after = advance(next)
+            next = after === next || after === refIndex ? frameIndex : after
+        }
         setFrameIndex(next)
-    }, [frames, frameIndex, rangeStart, rangeEnd, loop, setFrameIndex])
+    }, [frames, frameIndex, rangeStart, rangeEnd, loop, setFrameIndex, diffActive, refIndex])
 
     const togglePlaying = () =>
     {
@@ -413,7 +517,7 @@ export function useFrames(target: ViewTarget)
         frames,
         frame,
         frameIndex,
-        setFrameIndex,
+        setFrameIndex: setCurrentFrameIndex,
 
         matchWavelength,
         setMatchWavelength,
@@ -441,6 +545,12 @@ export function useFrames(target: ViewTarget)
         setSpeedFps,
 
         frameLoading: !!frame && !frameSettled,
+        viewMode,
+        survey,
+        setViewMode,
+        refFrame,
+        refIndex,
+        setRefIndex,
         cached,
         preloadedCount,
         preloadTotal: preloadOrder.length,

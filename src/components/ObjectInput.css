@@ -1,0 +1,59 @@
+/* Suggestion list under an object-name box. */
+.object-input {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+}
+
+.object-input > input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* Drawn in a portal at fixed position (see listPlacement), so nothing can clip it;
+   left / width / top or bottom / max-height are set inline to fit the window. */
+.object-input-list {
+    position: fixed;
+    z-index: 1000;
+    margin: 0;
+    padding: 4px;
+    box-sizing: border-box;
+    overflow-y: auto;
+    list-style: none;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 6px;
+    background: rgba(2, 8, 23, 0.97);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.55);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+
+.object-input-option {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.object-input-active {
+    background: rgba(37, 99, 235, 0.4);
+}
+
+.object-input-name {
+    color: #f8fafc;
+    font: 12px var(--sans);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.object-input-detail {
+    flex: 0 0 auto;
+    color: #94a3b8;
+    font: 10.5px var(--mono);
+    white-space: nowrap;
+}

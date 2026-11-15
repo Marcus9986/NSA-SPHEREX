@@ -64,6 +64,12 @@ export interface CutoutImage extends Image
     mjd: number | null;
 }
 
+/** An image for the viewport; survey images say their pixel size (SPHEREx frames are 6.15″). */
+export interface SkyImage extends Image
+{
+    pixelScaleArcsec?: number;
+}
+
 type QueryValue = string | number | boolean | undefined;
 
 function qs(params: Record<string, QueryValue>): string
@@ -547,4 +553,235 @@ export function retainFrames(requests: FrameRequest[]): void
     }
     if (changed)
         cacheListeners.forEach((listener) => listener());
+}
+
+// -- View modes: SPHEREx, difference against a reference frame, or another telescope --
+
+export interface SurveyInfo
+{
+    id:         string;
+    label:      string;
+    wavelength: string;
+}
+
+/** Other telescopes the backend can show for comparison (see /api/survey/list). */
+export const SURVEYS: SurveyInfo[] = [
+    { id: 'dss',     label: 'DSS',     wavelength: '0.65 µm optical' },
+    { id: '2mass_k', label: '2MASS K', wavelength: '2.2 µm' },
+    { id: 'wise_w1', label: 'WISE W1', wavelength: '3.4 µm' },
+    { id: 'wise_w2', label: 'WISE W2', wavelength: '4.6 µm' },
+];
+
+export type ViewMode = 'spherex' | 'diff' | `survey:${string}`;
+
+// Difference images are significance maps (signal / noise). Show ±this many sigma as
+// black..white, with mid-grey meaning "no change".
+export const DIFF_DISPLAY_SIGMA = 5;
+
+const AUX_CACHE_LIMIT = 32;
+const auxCache   = new Map<string, Image>();            // least recently used first
+const auxLoading = new Map<string, Promise<Image>>();
+
+function rememberAux(key: string, image: Image): void
+{
+    auxCache.set(key, image);
+    if (auxCache.size > AUX_CACHE_LIMIT)
+        auxCache.delete(auxCache.keys().next().value as string);
+}
+
+/** Shared download + cache for difference and survey images. */
+function loadAux(key: string, url: string, toDisplay: (raw: Image) => Image): Promise<Image>
+{
+    const cached = auxCache.get(key);
+    if (cached)
+    {
+        auxCache.delete(key);
+        auxCache.set(key, cached);
+        return Promise.resolve(cached);
+    }
+    const pending = auxLoading.get(key);
+    if (pending)
+        return pending;
+
+    const request = (async () =>
+    {
+        const res = await fetch(url);
+        await checkResponse(res, 'Image');
+        const width  = Number(res.headers.get('X-Width'));
+        const height = Number(res.headers.get('X-Height'));
+        const scale  = Number(res.headers.get('X-Pixel-Scale'));
+        const pixels = new Float32Array(await res.arrayBuffer());
+        const image: SkyImage = { ...toDisplay({ width, height, pixels }), pixelScaleArcsec: scale > 0 ? scale : undefined };
+        rememberAux(key, image);
+        return image;
+    })();
+
+    auxLoading.set(key, request);
+    request.catch(() => undefined).finally(() => auxLoading.delete(key));
+    return request;
+}
+
+function diffKey(imageUrl: string, refUrl: string, t: ViewTarget): string
+{
+    return `diff|${imageUrl}|${refUrl}|${t.ra}|${t.dec}|${t.fovArcsec}`;
+}
+
+function surveyKey(survey: string, t: ViewTarget, image?: string | null): string
+{
+    return `survey|${survey}|${image ?? ''}|${t.ra}|${t.dec}|${t.fovArcsec}`;
+}
+
+/** One image a survey has of the target (see /api/survey/images). */
+export interface SurveyImage
+{
+    id:         string;          // pass to /api/survey/data as `image`
+    label:      string;
+    obs_id:     string | null;
+    mjd_start:  number | null;
+    mjd_end:    number | null;
+    time_start: string | null;   // ISO; null when the archive doesn't say (DSS via SkyView)
+    time_end:   string | null;
+    note:       string;
+}
+
+const surveyListCache = new Map<string, Promise<SurveyImage[]>>();
+
+/** The images a survey has of a position (usually one), oldest first. */
+export function fetchSurveyImages(survey: string, ra: number, dec: number): Promise<SurveyImage[]>
+{
+    const key = `${survey}|${ra}|${dec}`;
+    let request = surveyListCache.get(key);
+    if (!request)
+    {
+        request = (async () =>
+        {
+            const res = await fetch(`${API_URL}/api/survey/images` + qs({ survey, ra, dec }));
+            await checkResponse(res, 'Survey image search');
+            return (await res.json()).images as SurveyImage[];
+        })();
+        surveyListCache.set(key, request);
+        request.catch(() => surveyListCache.delete(key));   // allow a retry after a failure
+    }
+    return request;
+}
+
+export function getCachedDiff(imageUrl: string, refUrl: string, t: ViewTarget): Image | undefined
+{
+    return auxCache.get(diffKey(imageUrl, refUrl, t));
+}
+
+export function getCachedSurvey(survey: string, t: ViewTarget, image?: string | null): Image | undefined
+{
+    return auxCache.get(surveyKey(survey, t, image));
+}
+
+/**
+ * Difference of two SPHEREx frames (image − reference) as a significance map, ready to
+ * draw: mid-grey = no change, white = brighter in `imageUrl`, black = fainter.
+ */
+export function loadDiffImage(imageUrl: string, refUrl: string, t: ViewTarget): Promise<Image>
+{
+    const url = `${API_URL}/api/spherex/diff/data` + qs({
+        url: imageUrl, ref_url: refUrl, ra: t.ra, dec: t.dec, size_arcsec: t.fovArcsec, mode: 'snr',
+    });
+    return loadAux(diffKey(imageUrl, refUrl, t), url, (raw) =>
+    {
+        const out = new Float32Array(raw.pixels.length);
+        for (let i = 0; i < out.length; i++)
+        {
+            const snr = raw.pixels[i];
+            out[i] = Number.isFinite(snr)
+                ? 0.5 + Math.min(Math.max(snr / DIFF_DISPLAY_SIGMA, -1), 1) * 0.5
+                : 0.5;   // masked / no data: same grey as "no change"
+        }
+        return { width: raw.width, height: raw.height, pixels: out };
+    });
+}
+
+/** Another telescope's image of the same field (north up / east left), stretched for display. */
+export function loadSurveyImage(survey: string, t: ViewTarget, image?: string | null): Promise<Image>
+{
+    const url = `${API_URL}/api/survey/data`
+        + qs({ survey, ra: t.ra, dec: t.dec, size_arcsec: t.fovArcsec, image: image ?? undefined });
+    return loadAux(surveyKey(survey, t, image), url, (raw) => stretchForDisplay(raw));
+}
+
+
+// -- Known solar-system bodies (SkyBoT) --
+
+export interface SolarSystemBody
+{
+    name:   string;
+    number: number | null;
+    type:   string | null;        // e.g. "MB>Outer" (main belt), "NEA>Apollo", "Comet", "Planet"
+    ra:     number;
+    dec:    number;
+    v_mag:  number | null;        // predicted visual brightness (bigger = fainter)
+    ra_rate:  number | null;      // arcsec / hour, includes cos(dec)
+    dec_rate: number | null;      // arcsec / hour
+    position_uncertainty_arcsec: number | null;
+    earth_distance_au: number | null;
+    sun_distance_au:   number | null;
+    link: string | null;
+}
+
+const bodiesCache   = new Map<string, SolarSystemBody[]>();
+const bodiesLoading = new Map<string, Promise<SolarSystemBody[]>>();
+
+/**
+ * Known asteroids, comets and planets within `radiusArcsec` of a position at a time
+ * (MJD). Cached, and concurrent requests for the same frame are shared.
+ */
+export function fetchSolarSystemBodies(ra: number, dec: number, mjd: number, radiusArcsec: number): Promise<SolarSystemBody[]>
+{
+    const key = `${ra}|${dec}|${mjd.toFixed(4)}|${Math.round(radiusArcsec)}`;
+    const cached = bodiesCache.get(key);
+    if (cached)
+        return Promise.resolve(cached);
+    const pending = bodiesLoading.get(key);
+    if (pending)
+        return pending;
+
+    const request = (async () =>
+    {
+        const res = await fetch(`${API_URL}/api/solar-system/bodies` + qs({ ra, dec, mjd, radius_arcsec: Math.round(radiusArcsec) }));
+        await checkResponse(res, 'Solar-system search');
+        const bodies = (await res.json()).bodies as SolarSystemBody[];
+        bodiesCache.set(key, bodies);
+        return bodies;
+    })();
+    bodiesLoading.set(key, request);
+    request.catch(() => undefined).finally(() => bodiesLoading.delete(key));
+    return request;
+}
+
+
+// -- Object names (CDS Sesame: SIMBAD, NED, VizieR) --
+
+export interface ResolvedObject
+{
+    name: string;
+    ra:   number;   // degrees, ICRS
+    dec:  number;
+}
+
+const nameCache = new Map<string, Promise<ResolvedObject>>();
+
+/** Sky position of a named star, galaxy, nebula, etc. ("M31", "Vega"). Cached; failures aren't. */
+export function resolveName(name: string): Promise<ResolvedObject>
+{
+    const key = name.trim().replace(/\s+/g, ' ').toLowerCase();
+    const cached = nameCache.get(key);
+    if (cached)
+        return cached;
+
+    const request = (async () =>
+    {
+        const res = await fetch(`${API_URL}/api/resolve` + qs({ name }));
+        await checkResponse(res, `Looking up "${name.trim()}"`);
+        return await res.json() as ResolvedObject;
+    })();
+    nameCache.set(key, request);
+    request.catch(() => nameCache.delete(key));
+    return request;
 }

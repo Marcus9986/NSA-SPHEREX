@@ -19,6 +19,7 @@ from astropy.time import Time
 from astropy.utils.data import cache_contents, clear_download_cache, conf, download_file, is_url_in_cache
 from astropy.wcs import WCS, FITSFixedWarning
 from astroquery.ipac.irsa import Irsa
+from astroquery.skyview import SkyView
 from fastapi import Depends, FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from reproject import reproject_interp
@@ -65,7 +66,7 @@ app.add_middleware(
     # Let the browser read the image-shape headers on binary responses.
     expose_headers=[
         "X-Width", "X-Height", "X-Dtype", "X-Bin", "X-Mjd", "X-Aligned",
-        "X-Mode", "X-Scale", "X-Sigma", "X-Ref-Mjd",
+        "X-Mode", "X-Scale", "X-Sigma", "X-Ref-Mjd", "X-Survey", "X-Pixel-Scale",
     ],
 )
 
@@ -510,12 +511,14 @@ def _download_from_irsa(url: str) -> str:
     raise AssertionError("unreachable")
 
 
-def _aligned_wcs(ra: float, dec: float, size_arcsec: float) -> tuple[WCS, int]:
-    """North-up TAN grid at SPHEREx pixel scale, with ra/dec at the center pixel."""
-    n = max(1, math.ceil(size_arcsec / SPHEREX_PIXEL_SCALE_ARCSEC))
+def _aligned_wcs(
+    ra: float, dec: float, size_arcsec: float, pixel_scale_arcsec: float = SPHEREX_PIXEL_SCALE_ARCSEC
+) -> tuple[WCS, int]:
+    """North-up TAN grid (SPHEREx pixel scale by default), with ra/dec at the center pixel."""
+    n = max(1, math.ceil(size_arcsec / pixel_scale_arcsec))
     if n % 2 == 0:
         n += 1  # odd size => the target sits exactly on the middle pixel
-    scale_deg = SPHEREX_PIXEL_SCALE_ARCSEC / 3600
+    scale_deg = pixel_scale_arcsec / 3600
     w = WCS(naxis=2)
     w.wcs.ctype = ["RA---TAN", "DEC--TAN"]
     w.wcs.crval = [ra, dec]
@@ -935,3 +938,312 @@ def get_diff_data(
         media_type="application/octet-stream",
         headers=headers,
     )
+
+
+# ---------------------------------------------------------------------------
+# Other telescopes: the same patch of sky from older all-sky surveys, for context.
+# Returned on the same north-up / east-left grid as the SPHEREx cutouts (at each
+# survey's own, finer resolution), so the frontend can swap between them.
+# ---------------------------------------------------------------------------
+
+SURVEYS: dict[str, dict] = {
+    # SkyView doesn't serve 2MASS / WISE reliably, so those come from IRSA directly.
+    "dss": {
+        "label": "DSS2 Red", "telescope": "Palomar / UK Schmidt", "wavelength": "0.65 µm (optical)",
+        "source": "skyview", "skyview": "DSS2 Red", "pixel_scale": 1.0,
+    },
+    "2mass_k": {
+        "label": "2MASS K", "telescope": "2MASS", "wavelength": "2.2 µm",
+        "source": "irsa", "collection": "twomass_allsky", "bandpass": "K", "pixel_scale": 1.0,
+    },
+    "wise_w1": {
+        "label": "WISE W1", "telescope": "WISE", "wavelength": "3.4 µm",
+        "source": "irsa", "collection": "wise_allwise", "bandpass": "W1", "pixel_scale": 1.375,
+    },
+    "wise_w2": {
+        "label": "WISE W2", "telescope": "WISE", "wavelength": "4.6 µm",
+        "source": "irsa", "collection": "wise_allwise", "bandpass": "W2", "pixel_scale": 1.375,
+    },
+}
+MAX_SURVEY_PIXELS = 800  # cap the output size; larger fields get coarser pixels
+
+
+def _with_retries(fn, what: str, attempts: int = 5):
+    """Call fn(), retrying the archives' intermittent 5xx / network errors."""
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            if attempt == attempts - 1:
+                raise HTTPException(status_code=502, detail=f"{what} failed: {exc}")
+            time.sleep(0.5 * (attempt + 1) + random.uniform(0, 0.5))
+    raise AssertionError("unreachable")
+
+
+def _mjd_or_none(value) -> float | None:
+    number = _number(value)
+    return number if number is not None and number > 0 else None
+
+
+@lru_cache(maxsize=256)
+def _survey_images(survey: str, ra: float, dec: float) -> tuple[dict, ...]:
+    """Every image this survey has covering ra/dec, oldest first.
+
+    These are archival survey products, not time series: 2MASS observed each patch of
+    sky once, AllWISE is one stack of all 2010 exposures, and DSS is one plate scan.
+    Overlapping tiles can still give more than one image at a position.
+    """
+    info = SURVEYS[survey]
+    if info["source"] == "skyview":
+        # SkyView resamples the DSS plates and doesn't pass on the plate date.
+        return ({
+            "id": survey, "label": f"{info['label']} plate", "obs_id": None,
+            "mjd_start": None, "mjd_end": None, "time_start": None, "time_end": None,
+            "note": "Single photographic plate scan; SkyView doesn't provide its date.",
+        },)
+
+    coord = SkyCoord(ra, dec, unit="deg")
+    rows = _with_retries(
+        lambda: Irsa.query_sia(pos=(coord, 1 * u.arcsec), collection=info["collection"]), f"{info['label']} search"
+    )
+    images = []
+    for row in rows:
+        if str(row["dataproduct_subtype"]) != "science" or str(row["energy_bandpassname"]).strip() != info["bandpass"]:
+            continue
+        start, end = _mjd_or_none(row["t_min"]), _mjd_or_none(row["t_max"])
+        stacked = start is not None and end is not None and end - start > 1
+        images.append({
+            "id": str(row["access_url"]),
+            "label": str(row["obs_id"]),
+            "obs_id": str(row["obs_id"]),
+            "mjd_start": start,
+            "mjd_end": end,
+            "time_start": _mjd_to_iso(start) if start is not None else None,
+            "time_end": _mjd_to_iso(end) if end is not None else None,
+            "note": "Stack of every exposure in this date range." if stacked else "Single observation.",
+            "_sep": coord.separation(SkyCoord(float(row["s_ra"]), float(row["s_dec"]), unit="deg")).deg,
+        })
+    images.sort(key=lambda im: (im["mjd_start"] is None, im["mjd_start"] or 0, im["_sep"]))
+    return tuple(images)
+
+
+def _survey_image_url(survey: str, ra: float, dec: float) -> str | None:
+    """The survey image centred closest to the target (the default when none is chosen)."""
+    images = [im for im in _survey_images(survey, ra, dec) if im["id"] != survey]
+    return min(images, key=lambda im: im["_sep"])["id"] if images else None
+
+
+@lru_cache(maxsize=32)
+def _survey_cutout(
+    survey: str, ra: float, dec: float, size_arcsec: float, image_url: str | None = None
+) -> tuple[np.ndarray, float]:
+    """Survey image on a north-up TAN grid centred on ra/dec. Returns (pixels, arcsec per pixel)."""
+    info = SURVEYS[survey]
+    pixel_scale = max(info["pixel_scale"], size_arcsec / MAX_SURVEY_PIXELS)
+    target_wcs, n = _aligned_wcs(ra, dec, size_arcsec, pixel_scale)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # FITSFixed / SIP header chatter from the archives
+        if info["source"] == "skyview":
+            width = n * pixel_scale * u.arcsec
+
+            def fetch():
+                result = SkyView.get_images(
+                    position=SkyCoord(ra, dec, unit="deg"), survey=[info["skyview"]],
+                    pixels=n, width=width, height=width, projection="Tan", coordinates="J2000",
+                )
+                if not result:
+                    raise RuntimeError("SkyView returned no image")
+                return result[0][0]
+
+            hdu = _with_retries(fetch, f"{info['label']} download")
+            data, wcs = np.asarray(hdu.data, dtype=np.float64), WCS(hdu.header).celestial
+        else:
+            image_url = image_url or _survey_image_url(survey, ra, dec)
+            if image_url is None:
+                raise HTTPException(status_code=404, detail=f"No {info['label']} image covers this position")
+            # Survey tiles are close to north-up, but fetch a margin so the corners are covered.
+            path = _fetch_fits(_cutout_url(image_url, ra, dec, min(size_arcsec * 1.5, 5400)))
+            with fits.open(path, memmap=False) as hdulist:
+                hdu = next(h for h in hdulist if h.data is not None)
+                data, wcs = np.asarray(hdu.data, dtype=np.float64), WCS(hdu.header).celestial
+
+        aligned, footprint = reproject_interp((data, wcs), target_wcs, shape_out=(n, n), order="bilinear")
+    aligned[footprint == 0] = np.nan
+    return aligned.astype("<f4"), pixel_scale
+
+
+@app.get("/api/survey/list")
+def list_surveys():
+    """Other telescopes available for comparison."""
+    return [
+        {"id": key, "label": v["label"], "telescope": v["telescope"], "wavelength": v["wavelength"]}
+        for key, v in SURVEYS.items()
+    ]
+
+
+@app.get("/api/survey/images")
+def list_survey_images(
+    survey: str = Query(..., description=f"One of: {', '.join(SURVEYS)}"),
+    ra: float = Query(..., ge=0, lt=360),
+    dec: float = Query(..., ge=-90, le=90),
+):
+    """The images this survey has of ra/dec (usually just one), oldest first. Pass an
+    image's `id` as `image` to /api/survey/data to show that one."""
+    if survey not in SURVEYS:
+        raise HTTPException(status_code=400, detail=f"survey must be one of {sorted(SURVEYS)}")
+    images = _survey_images(survey, round(ra, 7), round(dec, 7))
+    return {
+        "survey": survey,
+        "label": SURVEYS[survey]["label"],
+        "count": len(images),
+        "images": [{k: v for k, v in im.items() if not k.startswith("_")} for im in images],
+    }
+
+
+@app.get("/api/survey/data")
+def get_survey_data(
+    survey: str = Query(..., description=f"One of: {', '.join(SURVEYS)}"),
+    ra: float = Query(..., ge=0, lt=360),
+    dec: float = Query(..., ge=-90, le=90),
+    size_arcsec: float = Query(300, gt=0, le=3600),
+    image: str | None = Query(None, description="An image id from /api/survey/images (default: the closest one)"),
+):
+    """Another telescope's image of the target, as little-endian float32 (same layout as
+    /api/spherex/image/data, north up / east left). Units are the survey's own. NaN = no data."""
+    if survey not in SURVEYS:
+        raise HTTPException(status_code=400, detail=f"survey must be one of {sorted(SURVEYS)}")
+    image_url = image if image and image != survey else None
+    if image_url is not None:
+        _cutout_url(image_url, ra, dec, 1)  # only IRSA image URLs are accepted
+    pixels, pixel_scale = _survey_cutout(survey, round(ra, 7), round(dec, 7), float(size_arcsec), image_url)
+    return Response(
+        content=pixels.tobytes(),
+        media_type="application/octet-stream",
+        headers={
+            "X-Width": str(pixels.shape[1]),
+            "X-Height": str(pixels.shape[0]),
+            "X-Dtype": "float32",
+            "X-Survey": survey,
+            "X-Pixel-Scale": f"{pixel_scale:g}",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Known solar-system bodies (asteroids, comets, planets) in the field at a given
+# time, from IMCCE's SkyBoT service. Used to tag moving objects in the viewport,
+# so known asteroids can be told apart from anything new.
+# ---------------------------------------------------------------------------
+
+def _masked(value):
+    """Plain Python value from an astropy table cell (None for masked / NaN)."""
+    if value is None or np.ma.is_masked(value):
+        return None
+    if hasattr(value, "value"):  # Quantity
+        value = value.value
+    if isinstance(value, (bytes, np.bytes_)):
+        value = value.decode()
+    if isinstance(value, (np.floating, float)):
+        return None if not np.isfinite(value) else float(value)
+    if isinstance(value, np.integer):
+        return int(value)
+    return str(value) if not isinstance(value, (int, float, str)) else value
+
+
+def _number(value, digits: int | None = None) -> float | None:
+    """Numeric table cell as a float. SkyBoT returns some numbers (rates, distances) as text."""
+    value = _masked(value)
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return round(number, digits) if digits is not None else number
+
+
+@lru_cache(maxsize=1024)
+def _skybot(ra: float, dec: float, radius_arcsec: float, mjd: float) -> tuple[dict, ...]:
+    from astroquery.imcce import Skybot  # imported lazily: only needed for this endpoint
+
+    def query():
+        try:
+            # Observer at Earth's centre ('500'). SPHEREx is in low Earth orbit, so for a
+            # main-belt asteroid the positions differ by at most a few arcsec (< 1 pixel).
+            return Skybot.cone_search(
+                SkyCoord(ra, dec, unit="deg"), radius_arcsec * u.arcsec,
+                Time(mjd, format="mjd", scale="utc"), location="500",
+            )
+        except RuntimeError as exc:
+            if "No solar system object" in str(exc):
+                return None
+            raise
+
+    table = _with_retries(query, "SkyBoT search")
+    if table is None or len(table) == 0:
+        return ()
+
+    bodies = []
+    for row in table:
+        bodies.append({
+            "name": _masked(row["Name"]),
+            "number": _masked(row["Number"]),
+            "type": _masked(row["Type"]),
+            "ra": _number(row["RA"]),
+            "dec": _number(row["DEC"]),
+            "v_mag": _number(row["V"], 2),
+            # Rates of motion on the sky, arcsec per hour (RA rate includes cos(dec)).
+            "ra_rate": _number(row["RA_rate"]),
+            "dec_rate": _number(row["DEC_rate"]),
+            "position_uncertainty_arcsec": _number(row["posunc"]),
+            "distance_from_center_arcsec": _number(row["centerdist"], 1),
+            "earth_distance_au": _number(row["geodist"], 4),
+            "sun_distance_au": _number(row["heliodist"], 4),
+            "link": _masked(row["externallink"]),
+        })
+    bodies.sort(key=lambda b: (b["v_mag"] is None, b["v_mag"] or 0))
+    return tuple(bodies)
+
+
+@app.get("/api/solar-system/bodies")
+def solar_system_bodies(
+    ra: float = Query(..., ge=0, lt=360, description="Field centre RA in degrees"),
+    dec: float = Query(..., ge=-90, le=90, description="Field centre Dec in degrees"),
+    mjd: float = Query(..., description="Time of the observation (MJD, UTC), e.g. a frame's mjd_mid"),
+    radius_arcsec: float = Query(300, gt=0, le=7200, description="Search radius in arcsec"),
+):
+    """Known asteroids, comets and planets within radius_arcsec of ra/dec at time mjd,
+    brightest first. Empty list if there are none."""
+    bodies = _skybot(round(ra, 6), round(dec, 6), round(radius_arcsec, 1), round(mjd, 4))
+    return {"mjd": mjd, "count": len(bodies), "bodies": list(bodies)}
+
+
+@lru_cache(maxsize=512)
+def _resolve_name(name: str) -> tuple[float, float]:
+    from astropy.coordinates.name_resolve import NameResolveError
+
+    def query():
+        try:
+            coord = SkyCoord.from_name(name)
+        except NameResolveError as exc:
+            # Same error type for "no such object" and "Sesame unreachable"; only the first is final.
+            if "Unable to find coordinates" in str(exc):
+                raise HTTPException(status_code=404, detail=f"No object called '{name}' found")
+            raise
+        return float(coord.icrs.ra.deg), float(coord.icrs.dec.deg)
+
+    return _with_retries(query, "Name lookup", attempts=3)
+
+
+@app.get("/api/resolve")
+def resolve_name(name: str = Query(..., min_length=1, max_length=100, description="Object name, e.g. M31, Vega, NGC 7000")):
+    """RA / Dec (ICRS degrees) of a named star, galaxy, nebula, etc., via CDS Sesame
+    (SIMBAD, NED, VizieR). Solar-system bodies aren't covered (their positions change)."""
+    name = " ".join(name.split())
+    ra, dec = _resolve_name(name)
+    return {"name": name, "ra": ra, "dec": dec}

@@ -3,7 +3,10 @@
     flex-direction: column;
     gap: 8px;
     height: 100%;
-    padding: 12px;
+    /* The scrollbar sits halfway between the cards and the panel separator: equal space
+       on each side of it (6px of padding inside, 6px of margin outside). */
+    padding: 12px 6px 12px 12px;
+    margin-right: 6px;
     box-sizing: border-box;
     overflow-y: auto;
     font-size: 12px;
@@ -246,9 +249,10 @@
     text-align: right;
 }
 
+/* Always one row: equal-width buttons that shrink with the sidebar instead of wrapping. */
 .target-presets {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 4px;
 }
 
@@ -264,10 +268,13 @@
 }
 
 .target-preset {
-    flex: 1 0 auto;
-    padding: 3px 6px;
-    font-size: 10px;
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 3px 2px;
+    font-size: 11px;
+    font-family: var(--mono);
     white-space: nowrap;
+    overflow: hidden;
 }
 
 .target-preset:hover:not(:disabled),

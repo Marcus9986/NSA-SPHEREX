@@ -1,0 +1,279 @@
+/* Post-processing stack, drawn as a top-to-bottom pipeline. */
+.layer-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: 12px;
+}
+
+/* One fixed-height row: the menus and Clear share a height, so nothing below moves. */
+.layer-toolbar {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+}
+
+.layer-toolbar > * {
+    height: 26px;
+    box-sizing: border-box;
+    line-height: 1;
+}
+
+/* Centre the label in the fixed-height row (vertical padding would push it off-centre). */
+.layer-toolbar .layer-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
+}
+
+.layer-toolbar .layer-chip:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.layer-toolbar .layer-chip:disabled:hover {
+    border-color: rgba(148, 163, 184, 0.35);
+    background: rgba(17, 24, 39, 0.72);
+}
+
+.layer-chip,
+.layer-icon,
+.layer-title {
+    border: 1px solid transparent;
+    border-radius: 5px;
+    background: transparent;
+    color: #e2e8f0;
+    font: inherit;
+    cursor: pointer;
+}
+
+.layer-chip {
+    padding: 4px 9px;
+    border-color: rgba(148, 163, 184, 0.35);
+    background: rgba(17, 24, 39, 0.72);
+    font-size: 11px;
+}
+
+.layer-chip:hover,
+.layer-icon:hover:not(:disabled),
+.layer-title:hover {
+    border-color: rgba(96, 165, 250, 0.6);
+    background: rgba(148, 163, 184, 0.1);
+}
+
+.layer-chip:focus-visible,
+.layer-icon:focus-visible,
+.layer-title:focus-visible,
+.layer-select:focus-visible,
+.layer-param input:focus-visible {
+    outline: none;
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.6);
+}
+
+.layer-select {
+    min-width: 0;
+    padding: 4px 6px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 5px;
+    background: #0b1222;
+    color: #f8fafc;
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.layer-select option {
+    background: #0f172a;
+}
+
+.layer-add {
+    flex: 1 1 auto;
+    border-color: rgba(96, 165, 250, 0.7);
+    background: rgba(37, 99, 235, 0.22);
+    font-weight: 600;
+}
+
+/* -- The pipeline: source -> step 1 -> step 2 -> … -> viewport, joined by a rail -- */
+
+.layer-flow {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.layer-node {
+    align-self: flex-start;
+    padding: 2px 9px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 999px;
+    color: #94a3b8;
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+}
+
+.layer-node-end {
+    border-color: rgba(96, 165, 250, 0.6);
+    color: #bfdbfe;
+}
+
+.layer-step {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+/* "↓ then" on the rail between steps. */
+.layer-arrow {
+    align-self: flex-start;
+    margin-left: 12px;
+    padding: 1px 0 1px 8px;
+    border-left: 1px solid rgba(148, 163, 184, 0.35);
+    color: #64748b;
+    font-size: 10px;
+    line-height: 1.5;
+}
+
+.layer-card {
+    border: var(--border-size) solid var(--border-color);
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.6);
+}
+
+.layer-off {
+    border-style: dashed;
+}
+
+.layer-off .layer-name,
+.layer-off .layer-summary,
+.layer-off .layer-body {
+    opacity: 0.45;
+}
+
+.layer-head {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 4px 2px 6px;
+}
+
+.layer-head input[type='checkbox'] {
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    margin: 0 4px 0 0;
+    accent-color: #60a5fa;
+    cursor: pointer;
+}
+
+/* Name + settings summary; click to open / close the settings. */
+.layer-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 3px 4px;
+    text-align: left;
+}
+
+.layer-index {
+    flex: 0 0 auto;
+    color: #64748b;
+    font: 10.5px var(--mono);
+}
+
+.layer-name {
+    flex: 0 0 auto;
+    color: #f8fafc;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.layer-summary {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: #64748b;
+    font: 10.5px var(--mono);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.layer-caret {
+    flex: 0 0 auto;
+    margin-left: auto;
+    color: #94a3b8;
+    font-size: 10px;
+}
+
+.layer-icon {
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    font-size: 11px;
+    line-height: 1;
+}
+
+.layer-icon:disabled {
+    opacity: 0.25;
+    cursor: default;
+}
+
+.layer-body {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 2px 8px 8px;
+}
+
+.layer-description {
+    margin: 0 0 2px;
+    color: #94a3b8;
+    font-size: 10.5px;
+    line-height: 1.4;
+}
+
+/* label | slider | value, on one line */
+.layer-param {
+    display: grid;
+    grid-template-columns: 74px 1fr 48px;
+    align-items: center;
+    gap: 6px;
+    color: #cbd5e1;
+    font-size: 11px;
+}
+
+.layer-param-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.layer-param input[type='range'] {
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    accent-color: #3b82f6;
+    cursor: pointer;
+}
+
+.layer-param-wide {
+    grid-column: 2 / 4;
+}
+
+.layer-param-number {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 2px 4px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 4px;
+    background: #0b1222;
+    color: #f8fafc;
+    font: 10.5px var(--mono);
+    text-align: right;
+}

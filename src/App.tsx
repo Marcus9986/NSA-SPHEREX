@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import imagePostProcessingIcon from './assets/icons/img-post-processing.svg'
 import measureIcon from './assets/icons/measure.svg'
+import type { ResolvedObject, ViewTarget } from './api/spherex'
 import Header from './components/Header'
 import DefaultLayout from './layouts/DefaultLayout'
 
@@ -30,18 +31,14 @@ const TOOL_LIBRARY: ToolDefinition[] = [
         id: 'img-post-processing',
         label: 'Image Post Processing',
         icon: imagePostProcessingIcon,
-        description: 'Applying post-processing effects to viewport image.',
-        properties: [
-            { key: 'brightness', label: 'Brightness', type: 'slider', value: 100, min: 0, max: 200, step: 1 },
-            { key: 'contrast', label: 'Contrast', type: 'slider', value: 50, min: 0, max: 100, step: 1 },
-            { key: 'saturation', label: 'Saturation', type: 'slider', value: 50, min: 0, max: 100, step: 1 },
-        ],
+        description: 'Stack image-processing layers on the viewport image to bring out faint or moving objects.',
+        properties: [],
     },
     {
         id: 'measure',
         label: 'Measure',
         icon: measureIcon,
-        description: 'Measure the distance between objects in the viewport.',
+        description: 'Measure the angular distance and direction between two points on the sky.',
         properties: [],
     },
 ]
@@ -50,6 +47,16 @@ export default function App()
 {
     const [tools, setTools] = useState<ToolDefinition[]>(TOOL_LIBRARY)
     const [selectedToolId, setSelectedToolId] = useState(TOOL_LIBRARY[0].id)
+
+    // Sky position and field of view the viewport loads; edited in the sidebar, the gizmo and the header search.
+    const [target, setTarget] = useState<ViewTarget>({
+        ra:        304.6935088,
+        dec:       42.4436872991,
+        fovArcsec: 300,
+    })
+
+    // The last object found with the header search; marked on the image.
+    const [located, setLocated] = useState<ResolvedObject | null>(null)
 
     const selectedTool =
         tools.find((tool) => tool.id === selectedToolId) ?? tools[0]
@@ -78,8 +85,14 @@ export default function App()
     return (
         <>
             <div className="app">
-                <Header />
+                <Header
+                    onLocate={(object) => { setLocated(object); setTarget((t) => ({ ...t, ra: object.ra, dec: object.dec })) }}
+                    onClear={() => setLocated(null)}
+                />
                 <DefaultLayout
+                    target={target}
+                    setTarget={setTarget}
+                    located={located}
                     tools={tools}
                     selectedToolId={selectedToolId}
                     onSelectTool={setSelectedToolId}

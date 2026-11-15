@@ -10,7 +10,7 @@ type PlaybackPanelProps = {
     target: ViewTarget
 }
 
-type DragKind = 'playhead' | 'start' | 'end'
+type DragKind = 'playhead' | 'start' | 'end' | 'ref'
 
 const EPOCH_COLORS = ['#60a5fa', '#fbbf24', '#34d399', '#f472b6', '#a78bfa']
 
@@ -65,29 +65,31 @@ function labelStep(count: number): number
     return 1000
 }
 
+// Mouse travel (px) per wavelength step while dragging the wavelength.
+const DRAG_STEP_PX = 14
+
 /**
- * The matched wavelength, with up/down buttons and mouse-wheel scrolling that step to
- * the next wavelength any image was taken at. Hold Shift to jump past the current
- * tolerance to an entirely new set of images.
+ * The matched wavelength. Drag it (right / up = longer) or scroll over it to step to the
+ * next wavelength any image was taken at; click it to type one. Hold Shift to jump past
+ * the current tolerance to an entirely new set of images. While dragging, the mouse is
+ * locked and hidden (Pointer Lock), so the drag never runs into the edge of the screen.
  */
 function WavelengthStepper({ f }: { f: Frames })
 {
     const ref = useRef<HTMLDivElement | null>(null)
     const disabled = !f.matchWavelength || f.refWavelength === null
-    const first = f.wavelengths[0]
-    const last  = f.wavelengths[f.wavelengths.length - 1]
-    const atBottom = f.refWavelength === null || first === undefined || f.refWavelength <= first + 1e-6
-    const atTop    = f.refWavelength === null || last === undefined  || f.refWavelength >= last - 1e-6
 
-    // Wheel: scrolling up = longer wavelength. React's onWheel is passive and can't
-    // stop the page from scrolling, so attach a native listener.
+    // Native listeners: React's onWheel is passive (can't stop the page scrolling), and
+    // locked-pointer moves need movementX/Y. The latest step function is kept in a ref.
     const stepRef = useRef(f.stepWavelength)
     useEffect(() => { stepRef.current = f.stepWavelength }, [f.stepWavelength])
     useEffect(() =>
     {
         const element = ref.current
-        if (!element || disabled)
+        const input = element?.querySelector('input')
+        if (!element || !input || disabled)
             return
+
         const onWheel = (event: WheelEvent) =>
         {
             if (event.deltaY === 0)
@@ -95,8 +97,86 @@ function WavelengthStepper({ f }: { f: Frames })
             event.preventDefault()
             stepRef.current(event.deltaY < 0 ? 1 : -1, event.shiftKey)
         }
+
+        let dragId: number | null = null
+        let travel = 0   // towards the next step; +: longer
+        let moved  = 0   // total, to tell a click from a drag
+
+        const onPointerDown = (event: PointerEvent) =>
+        {
+            if (event.button !== 0 || document.activeElement === input)
+                return   // already typing: let the click place the caret
+            event.preventDefault()   // no focus / text selection yet: this may be a drag
+            dragId = event.pointerId
+            travel = 0
+            moved  = 0
+            element.setPointerCapture(event.pointerId)
+            element.classList.add('pb-stepper-dragging')
+            // Unbounded movement with the cursor hidden; if refused (e.g. right after an
+            // Esc), the capture above still makes the drag work, just limited by the screen.
+            if (event.pointerType === 'mouse')
+                Promise.resolve(element.requestPointerLock()).catch(() => undefined)
+        }
+
+        const onPointerMove = (event: PointerEvent) =>
+        {
+            if (event.pointerId !== dragId)
+                return
+            moved  += Math.abs(event.movementX) + Math.abs(event.movementY)
+            travel += event.movementX - event.movementY
+            // One step per event: stepWavelength reads the wavelength from the last render.
+            if (Math.abs(travel) >= DRAG_STEP_PX)
+            {
+                const direction = travel > 0 ? 1 : -1
+                travel = 0
+                stepRef.current(direction, event.shiftKey)
+            }
+        }
+
+        const endDrag = () =>
+        {
+            if (dragId === null)
+                return
+            if (element.hasPointerCapture(dragId))
+                element.releasePointerCapture(dragId)
+            dragId = null
+            element.classList.remove('pb-stepper-dragging')
+            if (document.pointerLockElement === element)
+                document.exitPointerLock()
+        }
+
+        const onPointerUp = (event: PointerEvent) =>
+        {
+            if (event.pointerId !== dragId)
+                return
+            const click = moved < 3
+            endDrag()
+            if (click)
+            {
+                input.focus()
+                input.select()
+            }
+        }
+
+        // Esc (or anything else) ending the lock ends the drag too.
+        const onLockChange = () => { if (document.pointerLockElement !== element) endDrag() }
+
         element.addEventListener('wheel', onWheel, { passive: false })
-        return () => element.removeEventListener('wheel', onWheel)
+        element.addEventListener('pointerdown', onPointerDown)
+        element.addEventListener('pointermove', onPointerMove)
+        element.addEventListener('pointerup', onPointerUp)
+        element.addEventListener('pointercancel', endDrag)
+        document.addEventListener('pointerlockchange', onLockChange)
+        return () =>
+        {
+            endDrag()
+            element.removeEventListener('wheel', onWheel)
+            element.removeEventListener('pointerdown', onPointerDown)
+            element.removeEventListener('pointermove', onPointerMove)
+            element.removeEventListener('pointerup', onPointerUp)
+            element.removeEventListener('pointercancel', endDrag)
+            document.removeEventListener('pointerlockchange', onLockChange)
+        }
     }, [disabled])
 
     const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) =>
@@ -112,7 +192,7 @@ function WavelengthStepper({ f }: { f: Frames })
         <div
             ref={ref}
             className="pb-stepper"
-            title="Scroll or use the arrows to step to the next wavelength used by an image (hold Shift to jump to a new set of images)"
+            title="Drag or scroll to step to the next wavelength used by an image; click to type one (hold Shift to jump to a new set of images)"
         >
             <input
                 type="number"
@@ -131,25 +211,99 @@ function WavelengthStepper({ f }: { f: Frames })
                 onKeyDown={onKeyDown}
                 aria-label="Wavelength to match, in micrometres"
             />
-            <div className="pb-stepper-buttons">
-                <button
-                    type="button"
-                    disabled={disabled || atTop}
-                    onClick={(e) => f.stepWavelength(1, e.shiftKey)}
-                    aria-label="Next longer wavelength"
-                    title="Next longer wavelength (Shift: next set of images)"
-                >
-                    <svg viewBox="0 0 10 6" width="8" height="5" aria-hidden="true"><path d="M0 6 5 0l5 6z" fill="currentColor" /></svg>
-                </button>
-                <button
-                    type="button"
-                    disabled={disabled || atBottom}
-                    onClick={(e) => f.stepWavelength(-1, e.shiftKey)}
-                    aria-label="Next shorter wavelength"
-                    title="Next shorter wavelength (Shift: previous set of images)"
-                >
-                    <svg viewBox="0 0 10 6" width="8" height="5" aria-hidden="true"><path d="M0 0h10L5 6z" fill="currentColor" /></svg>
-                </button>
+        </div>
+    )
+}
+
+function shortDate(iso: string | null): string
+{
+    return iso ? iso.slice(0, 10) : 'date unknown'
+}
+
+/**
+ * Timeline for another telescope's images. These are archival survey products, not a
+ * time series, so there's usually exactly one: the timeline says so instead of showing
+ * SPHEREx's frames, which aren't what's on screen.
+ */
+function SurveyTimeline({ survey }: { survey: NonNullable<Frames['survey']> })
+{
+    const { images, index, status } = survey
+    const count = images.length
+    const label = survey.info?.label ?? survey.id
+    const position = (i: number) => (count > 1 ? (i / (count - 1)) * 100 : 50)
+    const current = images[index] ?? null
+
+    const dateRange = (im: (typeof images)[number]) =>
+        im.time_start && im.time_end && im.time_end.slice(0, 10) !== im.time_start.slice(0, 10)
+            ? `${shortDate(im.time_start)} → ${shortDate(im.time_end)}`
+            : shortDate(im.time_start)
+
+    let message: string | null = null
+    if (status === 'loading')
+        message = `Looking up ${label} images of this position…`
+    else if (status === 'error')
+        message = survey.error ?? `${label} image search failed`
+    else if (count === 0)
+        message = `${label} has no images of this position`
+
+    return (
+        <div className="pb pb-survey">
+            <div className="pb-timeline pb-timeline-static">
+                <div className="pb-track">
+                    {message && <div className="pb-message">{message}</div>}
+                    {images.map((im, i) => (
+                        <div key={im.id} className="pb-tick pb-tick-labelled" style={{ left: `${position(i)}%` }}>
+                            <span>{i + 1}</span>
+                        </div>
+                    ))}
+                    {current && (
+                        <div className="pb-playhead pb-playhead-survey" style={{ left: `${position(index)}%` }}>
+                            <span className="pb-playhead-label">{index + 1}</span>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div className="pb-controls">
+                <div className="pb-box" title={`${label} images of this position`}>
+                    <span className="pb-box-static">{count ? index + 1 : 0}</span>
+                    <span className="pb-box-suffix">/ {count}</span>
+                </div>
+
+                <div className="pb-transport">
+                    <button type="button" className="pb-button" onClick={() => survey.setIndex(index - 1)}
+                            disabled={index <= 0} aria-label="Previous image" title="Previous image">
+                        {icons.previous}
+                    </button>
+                    <button type="button" className="pb-button" onClick={() => survey.setIndex(index + 1)}
+                            disabled={index >= count - 1} aria-label="Next image" title="Next image">
+                        {icons.next}
+                    </button>
+                </div>
+
+                <div className="pb-survey-note">
+                    {count === 1
+                        ? `${label} has 1 image of this position. Survey images are archival, not a time series; switch back to SPHEREx to step through dates.`
+                        : count > 1
+                            ? `${label} has ${count} overlapping images of this position.`
+                            : ''}
+                </div>
+            </div>
+
+            <div className="pb-status">
+                <div className="pb-frame-info">
+                    {current ? (
+                        <>
+                            <strong>{label}</strong>
+                            <span>{dateRange(current)}</span>
+                            {current.obs_id && <span className="pb-dim-text">{current.obs_id}</span>}
+                            <span className="pb-dim-text">{current.note}</span>
+                        </>
+                    ) : <span>&nbsp;</span>}
+                </div>
+                <div className="pb-filter">
+                    <span className="pb-count">{survey.info?.wavelength}</span>
+                </div>
             </div>
         </div>
     )
@@ -159,6 +313,10 @@ export default function PlaybackPanel({ frames: f, target }: PlaybackPanelProps)
 {
     const trackRef = useRef<HTMLDivElement | null>(null)
     const [dragging, setDragging] = useState<DragKind | null>(null)
+
+    // Another telescope is on screen: show its images, not SPHEREx's frames.
+    if (f.survey)
+        return <SurveyTimeline survey={f.survey} />
 
     const count = f.frames.length
     const last  = Math.max(count - 1, 0)
@@ -187,6 +345,7 @@ export default function PlaybackPanel({ frames: f, target }: PlaybackPanelProps)
             if (kind === 'playhead') f.setFrameIndex(index)
             if (kind === 'start')    f.setRangeStart(index)
             if (kind === 'end')      f.setRangeEnd(index)
+            if (kind === 'ref')      f.setRefIndex(index)
         }
         update(event.clientX)
         setDragging(kind)
@@ -334,6 +493,23 @@ export default function PlaybackPanel({ frames: f, target }: PlaybackPanelProps)
                         </>
                     )}
 
+                    {/* Reference frame for the difference view: only shown in that mode. */}
+                    {f.viewMode === 'diff' && count > 1 && (
+                        <div
+                            className={dragging === 'ref' ? 'pb-ref pb-ref-dragging' : 'pb-ref'}
+                            style={{ left: `${position(f.refIndex)}%` }}
+                        >
+                            <span
+                                className="pb-ref-label"
+                                onPointerDown={startDrag('ref')}
+                                title={`Reference frame ${f.refIndex + 1}${f.refFrame ? ` (${formatDate(f.refFrame)})` : ''}: `
+                                    + 'the difference view subtracts it from the current frame. Drag to change; it skips over the current frame.'}
+                            >
+                                REF
+                            </span>
+                        </div>
+                    )}
+
                     {count > 0 && (
                         <>
                             <div
@@ -432,6 +608,8 @@ export default function PlaybackPanel({ frames: f, target }: PlaybackPanelProps)
                         <span className="pb-match-light" aria-hidden="true" />
                         Match Wavelength
                     </button>
+                    {/* A native select shows the selected option's text, so the selected one is
+                        just its name ("D1"); the others keep their range and image count. */}
                     <select
                         className="pb-detector"
                         value={f.detector ?? ''}
@@ -440,10 +618,12 @@ export default function PlaybackPanel({ frames: f, target }: PlaybackPanelProps)
                         aria-label="Detector"
                         title="Detector: each SPHEREx detector covers one slice of the spectrum. Picking one jumps to its shortest wavelength."
                     >
-                        <option value="">All · every detector</option>
+                        <option value="">{f.detector === null ? 'All' : 'All · every detector'}</option>
                         {f.detectors.map((d) => (
                             <option key={d.detector} value={d.detector}>
-                                D{d.detector} · {floor2(d.minUm)}–{ceil2(d.maxUm)} µm ({d.count})
+                                {d.detector === f.detector
+                                    ? `D${d.detector}`
+                                    : `D${d.detector} · ${floor2(d.minUm)}–${ceil2(d.maxUm)} µm (${d.count})`}
                             </option>
                         ))}
                     </select>
