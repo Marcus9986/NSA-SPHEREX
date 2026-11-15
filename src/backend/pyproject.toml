@@ -10,9 +10,12 @@ requires-python = ">=3.11"
 dependencies = [
     "astropy>=8.0.2",
     "astroquery>=0.4.11",
+    "fastapi[standard]>=0.163.0",
     "firefly-client>=3.4.0",
     "matplotlib>=3.11.2",
     "numpy>=2.4.6",
+    "reproject>=0.21.0",
+    "scipy>=1.17.1",
 ]
 
 [project.scripts]
