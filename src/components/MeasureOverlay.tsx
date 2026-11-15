@@ -149,8 +149,8 @@ function Row({ label, value }: { label: string, value: string })
 }
 
 /** The measurement's numbers, for the properties panel. */
-export function MeasureReadout({ measurement, pixelScaleArcsec, onClear, onWideView }:
-    { measurement: Measurement | null, pixelScaleArcsec: number, onClear: () => void, onWideView?: () => void })
+export function MeasureReadout({ measurement, pixelScaleArcsec, onClear }:
+    { measurement: Measurement | null, pixelScaleArcsec: number, onClear: () => void })
 {
     if (!measurement)
         return <p className="measure-hint">Drag on the image with the left mouse button to measure. Click to clear.</p>
@@ -162,15 +162,7 @@ export function MeasureReadout({ measurement, pixelScaleArcsec, onClear, onWideV
         <section className="info-section measure-readout">
             <div className="measure-readout-head">
                 <span className="measure-distance">{formatAngle(sepArcsec)}</span>
-                <span className="measure-actions">
-                    {onWideView && (
-                        <button type="button" className="measure-clear" onClick={onWideView}
-                                title="Show the whole line on SPHEREx's all-sky map, to scroll along it or zoom out">
-                            Wide view
-                        </button>
-                    )}
-                    <button type="button" className="measure-clear" onClick={onClear}>Clear</button>
-                </span>
+                <button type="button" className="measure-clear" onClick={onClear}>Clear</button>
             </div>
             <dl>
                 <Row label="Arcseconds" value={sepArcsec.toFixed(2)} />

@@ -1,9 +1,10 @@
 import './PlaybackPanel.css'
 
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 
 import { fitsCutoutUrl, type SpherexImage, type ViewTarget } from '../api/spherex'
 import { PLAYBACK_SPEEDS_FPS, WAVELENGTH_TOLERANCES_UM, type Frames } from '../hooks/useFrames'
+import { useScrub } from '../hooks/useScrub'
 
 type PlaybackPanelProps = {
     frames: Frames
@@ -65,9 +66,6 @@ function labelStep(count: number): number
     return 1000
 }
 
-// Mouse travel (px) per wavelength step while dragging the wavelength.
-const DRAG_STEP_PX = 14
-
 /**
  * The matched wavelength. Drag it (right / up = longer) or scroll over it to step to the
  * next wavelength any image was taken at; click it to type one. Hold Shift to jump past
@@ -79,111 +77,37 @@ function WavelengthStepper({ f }: { f: Frames })
     const ref = useRef<HTMLDivElement | null>(null)
     const disabled = !f.matchWavelength || f.refWavelength === null
 
-    // Native listeners: React's onWheel is passive (can't stop the page scrolling), and
-    // locked-pointer moves need movementX/Y. The latest step function is kept in a ref.
-    const stepRef = useRef(f.stepWavelength)
-    useEffect(() => { stepRef.current = f.stepWavelength }, [f.stepWavelength])
-    useEffect(() =>
+    // The text being typed (null when not typing), so the box can be emptied or hold
+    // half-typed values like "1." while the matched wavelength stays the last valid one.
+    const [draft, setDraft] = useState<string | null>(null)
+
+    useScrub(ref, { disabled, draggingClass: 'pb-stepper-dragging',
+                    onStep: (direction, shift) => { setDraft(null); f.stepWavelength(direction, shift) } })
+
+    // Once typing is done (Enter / leaving the box), move a typed wavelength to the nearest
+    // one an image was taken at, so the box always names a real image's wavelength.
+    // Not on every keystroke: "1." on the way to "1.25" would snap mid-typing.
+    const snapToValid = () =>
     {
-        const element = ref.current
-        const input = element?.querySelector('input')
-        if (!element || !input || disabled)
+        const typed = f.refWavelength
+        if (typed === null || f.wavelengths.length === 0)
             return
-
-        const onWheel = (event: WheelEvent) =>
-        {
-            if (event.deltaY === 0)
-                return
-            event.preventDefault()
-            stepRef.current(event.deltaY < 0 ? 1 : -1, event.shiftKey)
-        }
-
-        let dragId: number | null = null
-        let travel = 0   // towards the next step; +: longer
-        let moved  = 0   // total, to tell a click from a drag
-
-        const onPointerDown = (event: PointerEvent) =>
-        {
-            if (event.button !== 0 || document.activeElement === input)
-                return   // already typing: let the click place the caret
-            event.preventDefault()   // no focus / text selection yet: this may be a drag
-            dragId = event.pointerId
-            travel = 0
-            moved  = 0
-            element.setPointerCapture(event.pointerId)
-            element.classList.add('pb-stepper-dragging')
-            // Unbounded movement with the cursor hidden; if refused (e.g. right after an
-            // Esc), the capture above still makes the drag work, just limited by the screen.
-            if (event.pointerType === 'mouse')
-                Promise.resolve(element.requestPointerLock()).catch(() => undefined)
-        }
-
-        const onPointerMove = (event: PointerEvent) =>
-        {
-            if (event.pointerId !== dragId)
-                return
-            moved  += Math.abs(event.movementX) + Math.abs(event.movementY)
-            travel += event.movementX - event.movementY
-            // One step per event: stepWavelength reads the wavelength from the last render.
-            if (Math.abs(travel) >= DRAG_STEP_PX)
-            {
-                const direction = travel > 0 ? 1 : -1
-                travel = 0
-                stepRef.current(direction, event.shiftKey)
-            }
-        }
-
-        const endDrag = () =>
-        {
-            if (dragId === null)
-                return
-            if (element.hasPointerCapture(dragId))
-                element.releasePointerCapture(dragId)
-            dragId = null
-            element.classList.remove('pb-stepper-dragging')
-            if (document.pointerLockElement === element)
-                document.exitPointerLock()
-        }
-
-        const onPointerUp = (event: PointerEvent) =>
-        {
-            if (event.pointerId !== dragId)
-                return
-            const click = moved < 3
-            endDrag()
-            if (click)
-            {
-                input.focus()
-                input.select()
-            }
-        }
-
-        // Esc (or anything else) ending the lock ends the drag too.
-        const onLockChange = () => { if (document.pointerLockElement !== element) endDrag() }
-
-        element.addEventListener('wheel', onWheel, { passive: false })
-        element.addEventListener('pointerdown', onPointerDown)
-        element.addEventListener('pointermove', onPointerMove)
-        element.addEventListener('pointerup', onPointerUp)
-        element.addEventListener('pointercancel', endDrag)
-        document.addEventListener('pointerlockchange', onLockChange)
-        return () =>
-        {
-            endDrag()
-            element.removeEventListener('wheel', onWheel)
-            element.removeEventListener('pointerdown', onPointerDown)
-            element.removeEventListener('pointermove', onPointerMove)
-            element.removeEventListener('pointerup', onPointerUp)
-            element.removeEventListener('pointercancel', endDrag)
-            document.removeEventListener('pointerlockchange', onLockChange)
-        }
-    }, [disabled])
+        f.setRefWavelength(f.wavelengths.reduce((best, w) => (Math.abs(w - typed) < Math.abs(best - typed) ? w : best)))
+    }
+    const finishTyping = () =>
+    {
+        setDraft(null)
+        snapToValid()
+    }
 
     const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) =>
     {
-        if (event.key === 'ArrowUp' || event.key === 'ArrowDown')
+        if (event.key === 'Enter')
+            finishTyping()
+        else if (event.key === 'ArrowUp' || event.key === 'ArrowDown')
         {
             event.preventDefault()
+            setDraft(null)
             f.stepWavelength(event.key === 'ArrowUp' ? 1 : -1, event.shiftKey)
         }
     }
@@ -200,15 +124,17 @@ function WavelengthStepper({ f }: { f: Frames })
                 min={0.7}
                 max={5.1}
                 step={0.01}
-                value={f.refWavelength ?? ''}
+                value={draft ?? f.refWavelength ?? ''}
                 disabled={disabled}
                 onChange={(e) =>
                 {
+                    setDraft(e.target.value)
                     const value = Number(e.target.value)
                     if (e.target.value !== '' && Number.isFinite(value))
                         f.setRefWavelength(value)
                 }}
                 onKeyDown={onKeyDown}
+                onBlur={finishTyping}
                 aria-label="Wavelength to match, in micrometres"
             />
         </div>

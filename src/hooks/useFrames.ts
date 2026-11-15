@@ -37,7 +37,16 @@ export type Frames = ReturnType<typeof useFrames>
  * position, the list of frames to step through (optionally only those near one
  * wavelength, so frames differ in time rather than colour), and playback state.
  */
-export function useFrames(target: ViewTarget)
+/** The detector whose wavelength range contains (or comes closest to) `um`. */
+function nearestDetector(detectors: { detector: number, minUm: number, maxUm: number }[], um: number | null): number | undefined
+{
+    if (um === null || detectors.length === 0)
+        return undefined
+    const distance = (d: { minUm: number, maxUm: number }) => Math.max(d.minUm - um, um - d.maxUm, 0)
+    return detectors.reduce((best, d) => (distance(d) < distance(best) ? d : best)).detector
+}
+
+export function useFrames(target: ViewTarget, initial: { wavelengthUm?: number, frameId?: string } = {})
 {
     const { ra, dec, fovArcsec } = target
     const searchKey = `${ra}|${dec}`
@@ -97,7 +106,8 @@ export function useFrames(target: ViewTarget)
     // which means the lowest-numbered detector at this position (normally D1).
     const [detectorChoice, setDetectorChoice] = useState<number | 'all' | null>(null)
     const [matchWavelength, setMatchWavelength] = useState(true)
-    const [chosenWavelength, setChosenWavelength] = useState<number | null>(null)
+    // Starts at the wavelength given in the page URL, if any (snapped to a real one below).
+    const [chosenWavelength, setChosenWavelength] = useState<number | null>(initial.wavelengthUm ?? null)
     const [toleranceUm, setToleranceUm] = useState(0.02)
 
     // The six SPHEREx detectors each cover one slice of the spectrum. Summarise what
@@ -126,9 +136,11 @@ export function useFrames(target: ViewTarget)
         return [...byDetector.values()].sort((a, b) => a.detector - b.detector)
     }, [allImages])
 
+    // With no detector picked, use the one covering the chosen wavelength (e.g. one from
+    // the URL), or else the lowest-numbered one.
     const detector: number | null = detectorChoice === 'all'
         ? null
-        : detectorChoice ?? detectors[0]?.detector ?? null
+        : detectorChoice ?? nearestDetector(detectors, chosenWavelength) ?? detectors[0]?.detector ?? null
 
     const detectorImages = useMemo(
         () => (detector === null ? allImages : allImages.filter((image) => image.detector === detector)),
@@ -186,6 +198,18 @@ export function useFrames(target: ViewTarget)
         return [...new Set(values)].sort((a, b) => a - b)
     }, [detectorImages])
 
+    // A wavelength from the URL needn't be one an image was taken at: once this
+    // position's images are in, move it to the nearest one, as typing it would.
+    const snapInitial = useRef(initial.wavelengthUm !== undefined)
+    useEffect(() =>
+    {
+        if (!snapInitial.current || wavelengths.length === 0)
+            return
+        snapInitial.current = false
+        setChosenWavelength((w) => (w === null ? w
+            : wavelengths.reduce((best, x) => (Math.abs(x - w) < Math.abs(best - w) ? x : best))))
+    }, [wavelengths])
+
     /**
      * Move the matched wavelength to the next (+1) or previous (-1) wavelength used by
      * an image. With `jump`, skip past everything inside the current tolerance, so the
@@ -230,6 +254,19 @@ export function useFrames(target: ViewTarget)
     }, [frames, selected])
 
     const frame = frameIndex >= 0 ? frames[frameIndex] : null
+
+    // Start on the frame named in the page URL, once this position's images are in.
+    // (If the wavelength filter leaves it out, the frame closest in time is shown.)
+    const pendingFrameId = useRef(initial.frameId ?? null)
+    useEffect(() =>
+    {
+        if (!pendingFrameId.current || allImages.length === 0)
+            return
+        const wanted = allImages.find((image) => image.obs_id === pendingFrameId.current)
+        pendingFrameId.current = null
+        if (wanted)
+            setSelected(wanted)
+    }, [allImages])
 
     // -- Loop range (frame indices, inclusive); resets when the frame list changes --
 

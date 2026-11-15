@@ -1,8 +1,8 @@
 import './Sidebar.css'
 
-import type { ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 
-import type { ViewportImageInfo, ViewTarget } from '../api/spherex'
+import type { ImageMeta, ViewportImageInfo, ViewTarget } from '../api/spherex'
 import TargetForm from './TargetForm'
 
 type SidebarProps = {
@@ -32,15 +32,17 @@ function fmtDate(iso: string | null | undefined): string
         : date.toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC')
 }
 
-function Row({ label, value, unit }: { label: string, value: ReactNode, unit?: string })
+function Row({ label, value, unit, note, dim = false }:
+    { label: string, value: ReactNode, unit?: string, note?: string | null, dim?: boolean })
 {
     return (
-        <div className="info-row">
+        <div className={dim ? 'info-row info-row-dim' : 'info-row'}>
             <dt>{label}</dt>
             <dd>
                 {value}
                 {unit && <span className="info-unit"> {unit}</span>}
             </dd>
+            {note && <div className="info-note">{note}</div>}
         </div>
     )
 }
@@ -55,6 +57,147 @@ function Section({ title, children, collapsed = false }: { title: string, childr
     )
 }
 
+const percent = (n: number, total: number) => (total ? `${+((100 * n) / total).toFixed(2)}%` : '—')
+
+/** Pixels in the cutout with each quality flag, described in SPHEREx's own words (from the file). */
+function QualityFlags({ flags }: { flags: ImageMeta['flags'] })
+{
+    const { total_pixels: total, flagged_pixels: flagged, planes } = flags
+    return (
+        <Section title="Quality Flags">
+            <Row label="Any flag" value={`${flagged} of ${total}`} unit={`px (${percent(flagged, total)})`} />
+            {planes.map((p) => (
+                <Row key={p.bit} label={p.name} value={p.pixels} unit={`px (${percent(p.pixels, total)})`}
+                     note={`Bit ${p.bit}${p.description ? ` · ${p.description}` : ''}`} dim={p.pixels === 0} />
+            ))}
+        </Section>
+    )
+}
+
+/**
+ * Every keyword of every extension in the cutout file, in one collapsible section:
+ * a search box (keywords, values and comments), then each extension under a subheading.
+ */
+function FitsHeaders({ headers }: { headers: ImageMeta['headers'] })
+{
+    const [query, setQuery] = useState('')
+    const q = query.trim().toLowerCase()
+    const matches = (c: ImageMeta['headers'][number]['cards'][number]) =>
+        !q || `${c.key} ${c.value ?? ''} ${c.comment ?? ''}`.toLowerCase().includes(q)
+    const total = headers.reduce((n, h) => n + h.cards.length, 0)
+    const groups = headers.map((h) => ({ ...h, shown: h.cards.filter(matches) })).filter((h) => h.shown.length > 0)
+    const shownCount = groups.reduce((n, h) => n + h.shown.length, 0)
+
+    return (
+        <Section title={`FITS Headers (${q ? `${shownCount} of ` : ''}${total})`} collapsed>
+            <div className="info-search-row">
+                <input
+                    type="search"
+                    className="info-search"
+                    placeholder={`Search ${total} keywords in ${headers.length} extensions…`}
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    aria-label="Search FITS header keywords, values and comments"
+                />
+            </div>
+            {groups.map((h) => (
+                <div key={h.index} className="info-group">
+                    <div className="info-group-title">
+                        {h.name} <span>{q ? `${h.shown.length} of ` : ''}{h.cards.length}</span>
+                    </div>
+                    {h.shown.map((c, i) => (
+                        <Row key={`${c.key}-${i}`} label={c.key} value={fmt(c.value, 6)} note={c.comment} />
+                    ))}
+                </div>
+            ))}
+            {q && groups.length === 0 && <p className="info-status">No keyword matches “{query}”.</p>}
+        </Section>
+    )
+}
+
+// A section counts as on screen while this much of its title bar is visible (px).
+const NAV_VISIBLE_PX = 12
+// A button only shows when its section's title is at least this share of the sidebar's
+// height beyond the visible part.
+const NAV_FAR_SHARE = 0.25
+
+/**
+ * Up / down buttons over the sidebar that scroll to the previous / next section. Each
+ * shows only while that section's title is well off screen (above / below the visible part).
+ */
+function SectionNav({ scrollRef }: { scrollRef: RefObject<HTMLDivElement | null> })
+{
+    const [targets, setTargets] = useState<{ up: HTMLElement | null, down: HTMLElement | null }>({ up: null, down: null })
+
+    useEffect(() =>
+    {
+        const scroller = scrollRef.current
+        if (!scroller)
+            return
+        const update = () =>
+        {
+            const view = scroller.getBoundingClientRect()
+            const sections = [...scroller.querySelectorAll<HTMLElement>('details.info-section')]
+            const tops = sections.map((s) => s.getBoundingClientRect().top)
+            // Up: the last section whose title is above the view; down: the first whose title is below it.
+            let up = -1, down = -1
+            tops.forEach((top, i) =>
+            {
+                if (top < view.top - 1) up = i
+                else if (down < 0 && top > view.bottom - NAV_VISIBLE_PX) down = i
+            })
+            // Only worth a button when it's well off screen: a short scroll reaches it anyway.
+            const far = view.height * NAV_FAR_SHARE
+            setTargets({
+                up:   up >= 0 && view.top - tops[up] >= far ? sections[up] : null,
+                down: down >= 0 && tops[down] - view.bottom >= far ? sections[down] : null,
+            })
+        }
+        update()
+        // Scrolling, resizing, sections opening / closing and content arriving all move them.
+        const resize = new ResizeObserver(update)
+        resize.observe(scroller)
+        const mutations = new MutationObserver(update)
+        mutations.observe(scroller, { childList: true, subtree: true, attributes: true, attributeFilter: ['open'] })
+        scroller.addEventListener('scroll', update, { passive: true })
+        return () =>
+        {
+            resize.disconnect()
+            mutations.disconnect()
+            scroller.removeEventListener('scroll', update)
+        }
+    }, [scrollRef])
+
+    const go = (section: HTMLElement | null) =>
+    {
+        const scroller = scrollRef.current
+        if (!section || !scroller)
+            return
+        const offset = section.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+        scroller.scrollBy({ top: offset - 8, behavior: 'smooth' })   // 8 px: a little space above it
+    }
+    const title = (s: HTMLElement | null) => s?.querySelector('summary')?.textContent ?? ''
+
+    return (
+        <>
+            {targets.up && (
+                <button type="button" className="section-nav section-nav-up" onClick={() => go(targets.up)}
+                        aria-label={`Scroll up to ${title(targets.up)}`} title={title(targets.up)}>
+                    <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 7.5 6 4l3.5 3.5" /></svg>
+                    <span>{title(targets.up)}</span>
+                </button>
+            )}
+            {targets.down && (
+                <button type="button" className="section-nav section-nav-down" onClick={() => go(targets.down)}
+                        aria-label={`Scroll down to ${title(targets.down)}`} title={title(targets.down)}>
+                    <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" /></svg>
+                    <span>{title(targets.down)}</span>
+                </button>
+            )}
+        </>
+    )
+}
+
 function KeyValues({ entries }: { entries: Record<string, Value> })
 {
     const keys = Object.keys(entries)
@@ -65,6 +208,7 @@ function KeyValues({ entries }: { entries: Record<string, Value> })
 
 export default function Sidebar({ info, target, onTargetChange }: SidebarProps)
 {
+    const scrollRef = useRef<HTMLDivElement | null>(null)
     const form = (
         <TargetForm target={target} loading={info?.status === 'loading'} onChange={onTargetChange} />
     )
@@ -77,11 +221,13 @@ export default function Sidebar({ info, target, onTargetChange }: SidebarProps)
     const stats = meta?.stats
 
     return (
-        <div className="sidebar">
+        <div className="sidebar-wrap">
+        <SectionNav scrollRef={scrollRef} />
+        <div className="sidebar" ref={scrollRef}>
             {form}
 
             <div className="sidebar-header">
-                <h2>Image Info</h2>
+                <h2>Image Metadata</h2>
                 <span className={`info-badge info-badge-${info.status}`}>{info.status}</span>
             </div>
 
@@ -146,11 +292,15 @@ export default function Sidebar({ info, target, onTargetChange }: SidebarProps)
                 </Section>
             )}
 
-            {meta && (
-                <Section title="FITS Header" collapsed>
-                    <KeyValues entries={meta.header} />
+            {meta?.flags && <QualityFlags flags={meta.flags} />}
+
+            {image && (
+                <Section title="Archive Record" collapsed>
+                    <KeyValues entries={image as unknown as Record<string, Value>} />
                 </Section>
             )}
+
+            {meta?.headers && <FitsHeaders headers={meta.headers} />}
 
             {meta && (
                 <Section title="WCS" collapsed>
@@ -164,6 +314,7 @@ export default function Sidebar({ info, target, onTargetChange }: SidebarProps)
                          value={<a href={image.access_url} target="_blank" rel="noreferrer">{image.access_url}</a>} />
                 </Section>
             )}
+        </div>
         </div>
     )
 }

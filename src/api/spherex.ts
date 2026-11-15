@@ -232,6 +232,16 @@ export interface ImageMeta
         max:         number;
         percentiles: Record<string, number>;
     } | null;
+    /** Quality: every flag the file defines, with how many cutout pixels have it set. */
+    flags:
+    {
+        total_pixels:   number;
+        flagged_pixels: number;
+        planes: { name: string, bit: number, description: string | null, pixels: number }[];
+    };
+    /** Every keyword of every extension (HDU) in the cutout file, in file order. */
+    headers: { index: number, name: string,
+               cards: { key: string, value: string | number | boolean | null, comment: string | null }[] }[];
 }
 
 /** Cutout metadata: size, observation time, wavelength at the target, header, WCS and pixel stats. */

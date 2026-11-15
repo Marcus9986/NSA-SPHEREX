@@ -1,7 +1,7 @@
 import './Layout.css'
 import './DefaultLayout.css'
 
-import { useState, type Dispatch, type SetStateAction } from 'react'
+import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 
 import type { ToolDefinition } from '../App'
@@ -9,7 +9,7 @@ import type { ResolvedObject, ViewTarget } from '../api/spherex'
 import { useFrames } from '../hooks/useFrames'
 import Sidebar from '../components/Sidebar'
 import Viewport from '../components/Viewport'
-import { PIXEL_SCALE_ARCSEC, greatCirclePoint, separation } from '../sky'
+import { PIXEL_SCALE_ARCSEC, greatCirclePoint } from '../sky'
 import { MeasureReadout, type Measurement } from '../components/MeasureOverlay'
 import { ObjectDistance } from '../components/ObjectSearch'
 import LayerStack from '../components/LayerStack'
@@ -17,6 +17,10 @@ import type { Layer } from '../processing'
 import Toolbar from '../components/Toolbar'
 import PlaybackPanel from '../components/PlaybackPanel'
 import PropertiesPanel from '../components/PropertiesPanel'
+import { writeUrlParams } from '../urlState'
+
+// Wait this long after the frame / wavelength stops changing before updating the URL.
+const URL_SETTLE_MS = 400
 
 type DefaultLayoutProps = {
     tools: ToolDefinition[]
@@ -26,6 +30,7 @@ type DefaultLayoutProps = {
     onPropertyChange: (propertyKey: string, nextValue: string | number | boolean) => void
     target: ViewTarget   // sky position and field of view the viewport loads (owned by App: the header search moves it too)
     setTarget: Dispatch<SetStateAction<ViewTarget>>
+    initialView?: { wavelengthUm?: number, frameId?: string }   // from the page URL
     located: ResolvedObject | null   // object found with the header search, marked in the viewport
 }
 
@@ -37,18 +42,33 @@ export default function DefaultLayout({
     onPropertyChange,
     target,
     setTarget,
+    initialView,
     located,
 }: DefaultLayoutProps)
 {
 
     // Images found at the target, the frame being shown and playback state,
     // shared by the viewport, the playback bar and the sidebar.
-    const frames = useFrames(target)
+    const frames = useFrames(target, initialView)
+
+    // Keep the matched wavelength and the frame shown in the URL too (the target is written
+    // by App). Not while loading, or the URL's values would be dropped before they're used;
+    // and only once things settle, since browsers refuse rapid history updates (playback).
+    const urlWavelength = frames.matchWavelength ? frames.refWavelength : null
+    const urlFrame = frames.frame?.obs_id ?? null
+    useEffect(() =>
+    {
+        if (frames.status !== 'ready')
+            return
+        const timer = setTimeout(() => writeUrlParams({
+            wavelength: urlWavelength === null ? null : String(urlWavelength),
+            frame:      urlFrame,
+        }), URL_SETTLE_MS)
+        return () => clearTimeout(timer)
+    }, [urlWavelength, urlFrame, frames.status])
 
     // The measure tool's ruler, drawn in the viewport and read out in the properties panel.
     const [measurement, setMeasurement] = useState<Measurement | null>(null)
-    // The measurement over SPHEREx's all-sky map, for lines longer than one image.
-    const [wideView, setWideView] = useState(false)
 
     // Post-processing layers applied to the viewport image, in order.
     const [layers, setLayers] = useState<Layer[]>([])
@@ -81,8 +101,6 @@ export default function DefaultLayout({
                                 measuring={selectedToolId === 'measure'}
                                 measurement={measurement}
                                 onMeasurementChange={setMeasurement}
-                                wideView={wideView}
-                                onCloseWideView={() => setWideView(false)}
                                 located={located}
                                 layers={layers}
                             />
@@ -118,8 +136,7 @@ export default function DefaultLayout({
                                         <MeasureReadout
                                             measurement={measurement}
                                             pixelScaleArcsec={PIXEL_SCALE_ARCSEC}
-                                            onClear={() => { setMeasurement(null); setWideView(false) }}
-                                            onWideView={() => setWideView(true)}
+                                            onClear={() => setMeasurement(null)}
                                         />
                                         <ObjectDistance onMeasure={(m) =>
                                         {
@@ -127,9 +144,6 @@ export default function DefaultLayout({
                                             // Centre on the midway point, so the line crosses the view however far apart they are.
                                             const { ra, dec } = greatCirclePoint(m.a, m.b, 0.5)
                                             setTarget((t) => ({ ...t, ra, dec }))
-                                            // Longer than the image: show the whole line on the all-sky map.
-                                            if (separation(m.a, m.b).sepArcsec > target.fovArcsec)
-                                                setWideView(true)
                                         }} />
                                     </>
                                 )}

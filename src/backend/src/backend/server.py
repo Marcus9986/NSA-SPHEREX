@@ -374,6 +374,7 @@ class Cutout:
     exposure_s: float | None
     wavelength_um: float | None
     bandwidth_um: float | None
+    path: str  # the cached cutout FITS file
 
 
 def _cutout_url(url: str, ra: float, dec: float, size_arcsec: float) -> str:
@@ -570,6 +571,7 @@ def _load_cutout(p: CutoutParams, extra_extensions: tuple[str, ...] = ()) -> Cut
         exposure_s=_json_safe(image_header.get("XPOSURE")),
         wavelength_um=wavelength_um,
         bandwidth_um=bandwidth_um,
+        path=path,
     )
 
     if p.align:
@@ -619,10 +621,47 @@ def health():
     return {"status": "ok"}
 
 
+def _all_headers(path: str) -> list[dict]:
+    """Every keyword of every extension (HDU) in a FITS file, in file order, with comments."""
+    out = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with fits.open(path, memmap=False) as hdulist:
+            for i, hdu in enumerate(hdulist):
+                cards = [
+                    {"key": card.keyword, "value": _json_safe(card.value), "comment": card.comment or None}
+                    for card in hdu.header.cards
+                    if card.keyword  # skip blank separator cards
+                ]
+                out.append({"index": i, "name": hdu.name or f"HDU {i}", "cards": cards})
+    return out
+
+
+def _flag_summary(flags: np.ndarray, headers: list[dict]) -> list[dict]:
+    """Every flag the file defines (MSKNnnnn name, MSKDnnnnn description in the FLAGS
+    header), with how many pixels of the cutout have it set. Falls back to FLAG_BITS."""
+    cards = next((h["cards"] for h in headers if h["name"] == "FLAGS"), [])
+    names = {c["key"][4:]: c["value"] for c in cards if c["key"].startswith("MSKN")}
+    descriptions = {c["key"][4:]: c["value"] for c in cards if c["key"].startswith("MSKD")}
+    defined = (
+        [(int(n), str(name), descriptions.get(n)) for n, name in names.items()]
+        if names else [(bit.bit_length() - 1, name, None) for name, bit in FLAG_BITS.items()]
+    )
+    flags = flags.astype(np.int64, copy=False)
+    return [
+        {"name": name, "bit": bit, "description": description,
+         "pixels": int(np.count_nonzero(flags & (1 << bit)))}
+        for bit, name, description in sorted(defined)
+    ]
+
+
 @app.get("/api/spherex/image/meta")
 def get_image_meta(p: CutoutParams = Depends()):
-    """Cutout size, WCS, observation time, wavelength at the target and pixel stats."""
-    c = _load_cutout(p)
+    """Cutout size, WCS, observation time, wavelength at the target, pixel stats, quality
+    flag counts and the full header of every extension in the cutout file."""
+    c = _load_cutout(p, extra_extensions=("FLAGS",))
+    flags = c.planes["FLAGS"]
+    headers = _all_headers(c.path)
     finite = c.data[np.isfinite(c.data)].astype(np.float64)
     if finite.size:
         pct = np.percentile(finite, [0.5, 1, 5, 50, 95, 99, 99.5])
@@ -653,6 +692,10 @@ def get_image_meta(p: CutoutParams = Depends()):
         "header": {k: _json_safe(c.header.get(k)) for k in HEADER_KEYWORDS},
         "wcs": {k: _json_safe(v) for k, v in wcs_header.items()},
         "stats": stats,
+        # Quality: pixels with each FLAGS bit set, out of all pixels in the (aligned) cutout.
+        "flags": {"total_pixels": int(flags.size), "flagged_pixels": int(np.count_nonzero(flags)),
+                  "planes": _flag_summary(flags, headers)},
+        "headers": headers,
     }
 
 

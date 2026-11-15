@@ -10,6 +10,14 @@
     cursor: grab;
     touch-action: none;
     overflow: visible;
+    /* Eases the grow / shrink on hover (the SVG's width / height). */
+    transition: width 0.25s cubic-bezier(0.22, 1, 0.36, 1), height 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sky-gizmo-svg {
+        transition: none;
+    }
 }
 
 .sky-gizmo-dragging {
@@ -45,6 +53,13 @@
     fill: none;
     stroke: rgba(148, 163, 184, 0.75);
     stroke-width: 1;
+}
+
+.sg-land {
+    fill: none;
+    stroke: rgba(74, 222, 128, 0.55);
+    stroke-width: 0.8;
+    stroke-linejoin: round;
 }
 
 .sg-grid {

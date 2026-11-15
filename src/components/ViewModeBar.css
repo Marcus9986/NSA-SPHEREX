@@ -5,7 +5,7 @@
     align-items: stretch;
     gap: 3px;
     width: 88px;
-    /* The gizmo's SVG is wider than what it draws; line up with its "W" label. */
+    /* The gizmo's SVG is wider than what it draws; line up with its right-hand "E" label. */
     margin-right: 16px;
     user-select: none;
 }

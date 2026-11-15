@@ -1,6 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 
 import { MAX_FOV_ARCSEC, MIN_FOV_ARCSEC, parseCoordinate, type ViewTarget } from '../api/spherex'
+import { useScrub } from '../hooks/useScrub'
 
 type TargetFormProps = {
     target:   ViewTarget
@@ -9,6 +10,9 @@ type TargetFormProps = {
 }
 
 const FOV_PRESETS = [60, 300, 900, 1800, 3600]
+// Zoom per drag / scroll step, and with Shift held.
+const FOV_STEP = 1.08
+const FOV_STEP_SHIFT = 1.4
 
 function clampFov(value: number): number
 {
@@ -35,7 +39,7 @@ function fovShortLabel(arcsec: number): string
     return `${arcsec}″`
 }
 
-/** FOV in degrees, for the hint under the slider. */
+/** FOV in degrees, for the hint under the box. */
 function fovDegrees(arcsec: number): string
 {
     return `${+(arcsec / 3600).toFixed(4)}°`
@@ -186,13 +190,38 @@ export default function TargetForm({ target, loading, onChange }: TargetFormProp
         apply()
     }
 
-    // FOV changes only need a new cutout, so apply them right away
-    // when a preset is picked or the slider is released.
+    // FOV changes only need a new cutout, so apply them right away: when a preset is
+    // picked, a drag or scroll on the box ends, or the typed value is left.
     const applyFov = (value: number) =>
     {
         const clamped = clampFov(value)
         setFov(clamped)
         apply(clamped)
+    }
+
+    // Steps are a fixed ratio, so zooming feels the same at 30 arcsec as at 1 degree.
+    // fovValue tracks steps made between renders (several can land in one frame).
+    const fovValue = useRef(fov)
+    fovValue.current = fov
+    const stepFov = (direction: 1 | -1, shift: boolean) =>
+    {
+        const ratio = shift ? FOV_STEP_SHIFT : FOV_STEP
+        const v = fovValue.current
+        const next = clampFov(direction > 0 ? Math.max(v + 1, v * ratio) : Math.min(v - 1, v / ratio))
+        fovValue.current = next
+        setFov(next)
+    }
+    const fovRef = useRef<HTMLDivElement | null>(null)
+    useScrub(fovRef, { disabled: !valid, draggingClass: 'target-fov-dragging', onStep: stepFov,
+                       onEnd: () => applyFov(fovValue.current) })
+
+    const onFovKeyDown = (event: KeyboardEvent<HTMLInputElement>) =>
+    {
+        if (event.key === 'ArrowUp' || event.key === 'ArrowDown')
+        {
+            event.preventDefault()
+            stepFov(event.key === 'ArrowUp' ? 1 : -1, event.shiftKey)
+        }
     }
 
     return (
@@ -225,33 +254,27 @@ export default function TargetForm({ target, loading, onChange }: TargetFormProp
 
             <div className="target-field">
                 <span>Field of View</span>
-                <div className="target-fov-row">
+                <div
+                    ref={fovRef}
+                    className="target-fov"
+                    title="Drag or scroll to zoom (hold Shift for bigger steps); click to type"
+                >
                     <input
-                        type="range"
-                        min={MIN_FOV_ARCSEC}
-                        max={MAX_FOV_ARCSEC}
-                        step={10}
+                        type="text"
+                        inputMode="numeric"
+                        className="target-fov-input"
                         value={fov}
-                        onChange={(e) => setFov(Number(e.target.value))}
-                        onPointerUp={(e) => applyFov(Number(e.currentTarget.value))}
-                        onKeyUp={(e) => applyFov(Number(e.currentTarget.value))}
+                        onChange={(e) => { if (/^\d*$/.test(e.target.value)) setFov(Number(e.target.value)) }}
+                        onBlur={() => applyFov(fov)}
+                        onKeyDown={onFovKeyDown}
+                        onKeyUp={(e) => { if (e.key === 'ArrowUp' || e.key === 'ArrowDown') applyFov(fovValue.current) }}
                         aria-label="Field of view in arcseconds"
+                        spellCheck={false}
                     />
-                    <input
-                        type="number"
-                        className="target-fov-number"
-                        min={MIN_FOV_ARCSEC}
-                        max={MAX_FOV_ARCSEC}
-                        step={10}
-                        value={fov}
-                        onChange={(e) => setFov(Number(e.target.value))}
-                        onBlur={(e) => setFov(clampFov(Number(e.target.value)))}
-                        aria-label="Field of view in arcseconds"
-                    />
-                    <span className="info-unit">arcsec</span>
+                    <span className="sexagesimal-unit">arcsec</span>
                 </div>
                 <span className="target-hint">
-                    = {fovLabel(fov)} ({fovDegrees(fov)}) · ~{Math.round(fov / 6.15)} px across
+                    {fovLabel(fov)} · {fovDegrees(fov)} · ~{Math.round(fov / 6.15)} px
                 </span>
             </div>
 
