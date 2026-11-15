@@ -5,7 +5,6 @@ import SkyGizmo from './SkyGizmo';
 import ViewModeBar from './ViewModeBar';
 import BodyOverlay, { fieldPosition, isLikelyVisible } from './BodyOverlay';
 import MeasureOverlay, { ObjectMarker, type Measurement } from './MeasureOverlay';
-import WideSkyView from './WideSkyView';
 import type { Layer } from '../processing';
 import { PIXEL_SCALE_ARCSEC, formatDec, formatRa, screenToImage, skyFromStandard, type SkyPoint } from '../sky';
 import type { ViewState } from '../renderer/index';
@@ -40,8 +39,6 @@ type ViewportProps = {
     measuring?:   boolean               // the measure tool is selected: left-drag draws a ruler
     measurement?: Measurement | null
     onMeasurementChange?: (measurement: Measurement | null) => void
-    wideView?:    boolean               // show the measurement on the SPHEREx all-sky map instead of the frame
-    onCloseWideView?: () => void
     located?:     ResolvedObject | null   // object found with the header search
     layers?:      Layer[]                 // post-processing stack, applied in order
 }
@@ -62,8 +59,7 @@ function shortDate(iso: string | null | undefined): string
 export default function Viewport({ target, frame, frameIndex, frameCount, searching = false,
                                    viewMode, onViewModeChange, refFrame, refIndex, onImageInfo, onTargetChange,
                                    surveyImageId = null, measuring = false, measurement = null,
-                                   onMeasurementChange, located = null, layers = NO_LAYERS,
-                                   wideView = false, onCloseWideView }: ViewportProps)
+                                   onMeasurementChange, located = null, layers = NO_LAYERS }: ViewportProps)
 {
     // Why the difference / survey image couldn't be shown (the SPHEREx frame is shown instead).
     const [auxError, setAuxError] = useState<string | null>(null);
@@ -576,10 +572,6 @@ export default function Viewport({ target, frame, frameIndex, frameCount, search
                         </span>
                     </div>
                 </div>
-            )}
-
-            {wideView && measurement && (
-                <WideSkyView measurement={measurement} onClose={() => onCloseWideView?.()} />
             )}
         </div>
     );

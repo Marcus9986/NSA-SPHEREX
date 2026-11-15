@@ -1,12 +1,13 @@
 import './App.css'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import imagePostProcessingIcon from './assets/icons/img-post-processing.svg'
 import measureIcon from './assets/icons/measure.svg'
 import type { ResolvedObject, ViewTarget } from './api/spherex'
 import Header from './components/Header'
 import DefaultLayout from './layouts/DefaultLayout'
+import { readUrlState, writeUrlParams } from './urlState'
 
 export type ToolProperty = {
     key: string
@@ -48,12 +49,22 @@ export default function App()
     const [tools, setTools] = useState<ToolDefinition[]>(TOOL_LIBRARY)
     const [selectedToolId, setSelectedToolId] = useState(TOOL_LIBRARY[0].id)
 
+    // View given in the page URL (?ra=&dec=&fov=&wavelength=), read once at start-up.
+    const [fromUrl] = useState(() => readUrlState())
+
     // Sky position and field of view the viewport loads; edited in the sidebar, the gizmo and the header search.
-    const [target, setTarget] = useState<ViewTarget>({
-        ra:        304.6935088,
-        dec:       42.4436872991,
-        fovArcsec: 300,
-    })
+    const [target, setTarget] = useState<ViewTarget>(() => ({
+        ra:        fromUrl.ra ?? 304.6935088,
+        dec:       fromUrl.dec ?? 42.4436872991,
+        fovArcsec: fromUrl.fovArcsec ?? 300,
+    }))
+
+    // Keep the URL showing the current view, so it can be copied, shared or embedded.
+    useEffect(() =>
+    {
+        writeUrlParams({ ra: String(+target.ra.toFixed(6)), dec: String(+target.dec.toFixed(6)),
+                         fov: String(target.fovArcsec) })
+    }, [target])
 
     // The last object found with the header search; marked on the image.
     const [located, setLocated] = useState<ResolvedObject | null>(null)
@@ -92,6 +103,7 @@ export default function App()
                 <DefaultLayout
                     target={target}
                     setTarget={setTarget}
+                    initialView={fromUrl}
                     located={located}
                     tools={tools}
                     selectedToolId={selectedToolId}

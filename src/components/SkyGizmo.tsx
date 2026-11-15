@@ -1,7 +1,8 @@
 import './SkyGizmo.css'
 
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 
+import { LAND_RINGS } from '../data/land'
 import { greatCirclePoint, type SkyPoint } from '../sky'
 
 type SkyGizmoProps = {
@@ -24,6 +25,9 @@ const CY     = SIZE / 2
 
 const MAX_PITCH = 80 * DEG
 
+// Size of the gizmo while hovered, relative to its normal size. The resize is eased in the CSS.
+const ZOOMED_SCALE = 1.8
+
 /** Unit vector on the celestial sphere for a sky position (degrees). */
 function toVector(raDeg: number, decDeg: number): Vec3
 {
@@ -33,9 +37,10 @@ function toVector(raDeg: number, decDeg: number): Vec3
 
 /**
  * Orthographic projection of a sphere point. `yaw` (radians) is the RA that faces the
- * viewer, `pitch` how far the view is tilted above the equator. The picture is
- * mirrored left/right so it shows the sky as seen from Earth: RA increases to the
- * left (east is left), matching the image, which is drawn north up / east left.
+ * viewer, `pitch` how far the view is tilted above the equator. The sphere is seen
+ * from outside, like a celestial globe, so the coastlines on it read the right way
+ * round; RA (east) therefore increases to the right, the mirror of the image, which is
+ * drawn as seen from Earth (east left). Seen from inside, the land would be mirrored.
  */
 function project(p: Vec3, yaw: number, pitch: number, scale = RADIUS)
 {
@@ -48,7 +53,7 @@ function project(p: Vec3, yaw: number, pitch: number, scale = RADIUS)
     const cp = Math.cos(pitch), sp = Math.sin(pitch)
     const depth = x1 * cp + z1 * sp      // > 0: on the hemisphere facing the viewer
     const up    = -x1 * sp + z1 * cp
-    return { x: CX - y1 * scale, y: CY - up * scale, depth }
+    return { x: CX + y1 * scale, y: CY - up * scale, depth }
 }
 
 /**
@@ -144,6 +149,20 @@ function formatDec(decDeg: number): string
     return `${decDeg < 0 ? '−' : '+'}${d}° ${String(m).padStart(2, '0')}′ ${String(s).padStart(2, '0')}″`
 }
 
+/**
+ * Greenwich mean sidereal time (degrees) at a moment (ms since 1970): how far Earth has
+ * turned, i.e. the RA overhead at longitude 0. IAU 1982 formula, good to well under a
+ * degree for centuries either side of 2000, far finer than the gizmo can show.
+ */
+export function siderealDeg(ms: number): number
+{
+    const daysSinceJ2000 = ms / 86_400_000 - 10_957.5   // J2000.0 = 2000-01-01 12:00 UTC
+    return ((280.46061837 + 360.98564736629 * daysSinceJ2000) % 360 + 360) % 360
+}
+
+// How often the coastlines are turned to follow Earth's rotation (0.25° a minute).
+const EARTH_TICK_MS = 60_000
+
 // A press that moves less than this many pixels is a click (retarget), not a drag (rotate).
 const CLICK_TOLERANCE_PX = 4
 
@@ -153,7 +172,7 @@ const CLICK_TOLERANCE_PX = 4
  */
 function unproject(x: number, y: number, yaw: number, pitch: number): { ra: number, dec: number } | null
 {
-    const y1 = (CX - x) / RADIUS          // undo the left/right mirroring
+    const y1 = (x - CX) / RADIUS
     const up = (CY - y) / RADIUS
     const r2 = y1 * y1 + up * up
     if (r2 > 1)
@@ -219,6 +238,31 @@ export default function SkyGizmo({ ra, dec, fovArcsec, onTarget, measurement = n
 
     const { yaw, pitch } = view
 
+    // Enlarged while the pointer is over it.
+    const [zoomed, setZoomed] = useState(false)
+    const zoom = zoomed ? ZOOMED_SCALE : 1
+
+    // Earth's coastlines, each place drawn at the sky position directly overhead of it right
+    // now (Dec = latitude, RA = longitude + sidereal time), so the target sits over the part
+    // of Earth where it's straight up.
+    const [now, setNow] = useState(() => Date.now())
+    useEffect(() =>
+    {
+        const timer = setInterval(() => setNow(Date.now()), EARTH_TICK_MS)
+        return () => clearInterval(timer)
+    }, [])
+    const landVectors = useMemo(() =>
+    {
+        const gst = siderealDeg(now)
+        return LAND_RINGS.map((ring) =>
+        {
+            const points: Vec3[] = []
+            for (let i = 0; i < ring.length; i += 2)
+                points.push(toVector(ring[i] + gst, ring[i + 1]))
+            return points
+        })
+    }, [now])
+
     const onPointerDown = (event: ReactPointerEvent<SVGSVGElement>) =>
     {
         if (event.button !== 0)
@@ -246,9 +290,9 @@ export default function SkyGizmo({ ra, dec, fovArcsec, onTarget, measurement = n
             setDragging(true)
             setHover(null)
         }
-        const k = 0.012   // radians per pixel
+        const k = 0.012 / zoom   // radians per screen pixel; slower when zoomed, so it tracks the bigger sphere
         setView({
-            yaw:   start.yaw + (event.clientX - start.x) * k,
+            yaw:   start.yaw - (event.clientX - start.x) * k,   // the globe's surface follows the pointer
             pitch: Math.min(MAX_PITCH, Math.max(-MAX_PITCH, start.pitch + (event.clientY - start.y) * k)),
         })
     }
@@ -289,6 +333,7 @@ export default function SkyGizmo({ ra, dec, fovArcsec, onTarget, measurement = n
         grid.push(curve(meridian(h * 15), yaw, pitch))
 
     const equator = curve(parallel(0), yaw, pitch)
+    const land = landVectors.map((ring) => curve(ring, yaw, pitch).front).join('')
 
     // RA: along the equator, eastward from 0h to the target's hour angle.
     const raNorm  = ((ra % 360) + 360) % 360
@@ -299,7 +344,7 @@ export default function SkyGizmo({ ra, dec, fovArcsec, onTarget, measurement = n
     const target  = project(toVector(raNorm, dec), yaw, pitch)
 
     // -- Field of view: a square pyramid from Earth (the centre of the sphere) out to the
-    //    patch of sky in the image, oriented like the image (north up, east left). --
+    //    patch of sky in the image, north and east as on the sky (seen from outside, so east is on the right). --
     const fovDeg    = fovArcsec / 3600
     const drawnDeg  = Math.max(fovDeg, MIN_DRAWN_FOV_DEG)
     const enlarged  = drawnDeg > fovDeg
@@ -358,22 +403,28 @@ export default function SkyGizmo({ ra, dec, fovArcsec, onTarget, measurement = n
     return (
         <div className="sky-gizmo" aria-label={`Sky position: right ascension ${formatRa(ra)}, declination ${formatDec(dec)}`}>
             <svg
-                width={SIZE}
-                height={SIZE}
+                width={SIZE * zoom}
+                height={SIZE * zoom}
                 viewBox={`0 0 ${SIZE} ${SIZE}`}
                 className={dragging ? 'sky-gizmo-svg sky-gizmo-dragging' : 'sky-gizmo-svg'}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
                 onPointerCancel={endDrag}
-                onPointerLeave={() => setHover(null)}
+                onPointerEnter={() => setZoomed(true)}
+                onPointerLeave={() => { setHover(null); setZoomed(false) }}
                 onDoubleClick={() => setView(defaultView(ra, dec))}
                 role="img"
             >
-                <title>Celestial sphere as seen from Earth (east to the left, like the image). Click a point to go there, drag to rotate, double-click to reset the view.</title>
+                <title>Celestial sphere seen from outside, like a celestial globe (so east is to the right, the mirror of the image), with the coastlines of the places each point is overhead of right now. Click a point to go there, drag to rotate, double-click to reset the view.</title>
 
                 {/* Sphere body and limb */}
                 <circle cx={CX} cy={CY} r={RADIUS} className="sg-body" />
+
+                {/* Land under each point of the sky right now; near side only, the far side is clutter */}
+                <path d={land} className="sg-land">
+                    <title>Coastlines: each part of Earth is drawn under the point of the sky directly overhead it right now</title>
+                </path>
 
                 {/* Far side first, so the near side draws over it */}
                 {grid.map((g, i) => <path key={`gb${i}`} d={g.back} className="sg-grid sg-back" />)}
@@ -477,9 +528,9 @@ export default function SkyGizmo({ ra, dec, fovArcsec, onTarget, measurement = n
                 <text x={northLabel.x} y={northLabel.y + 4} className="sg-pole">N</text>
                 <text x={southLabel.x} y={southLabel.y + 4} className="sg-pole">S</text>
 
-                {/* East / west: east is the direction of increasing RA (left on the sky) */}
-                <text x={CX - RADIUS - 11} y={CY + 4} className="sg-cardinal">E</text>
-                <text x={CX + RADIUS + 11} y={CY + 4} className="sg-cardinal">W</text>
+                {/* East / west: east is the direction of increasing RA (right, seen from outside) */}
+                <text x={CX - RADIUS - 11} y={CY + 4} className="sg-cardinal">W</text>
+                <text x={CX + RADIUS + 11} y={CY + 4} className="sg-cardinal">E</text>
             </svg>
 
         </div>
