@@ -1,6 +1,7 @@
 import './PlaybackPanel.css'
 
-import { useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 
 import { fitsCutoutUrl, type SpherexImage, type ViewTarget } from '../api/spherex'
 import { PLAYBACK_SPEEDS_FPS, WAVELENGTH_TOLERANCES_UM, type Frames } from '../hooks/useFrames'
@@ -34,11 +35,122 @@ const icons = {
             <path d="M17 3l4 4-4 4V8H7a2 2 0 0 0-2 2v2H3v-2a4 4 0 0 1 4-4h10zM7 21l-4-4 4-4v3h10a2 2 0 0 0 2-2v-2h2v2a4 4 0 0 1-4 4H7z" />
         </Icon>
     ),
-    save: (
-        <Icon>
-            <path d="M5 3h11.6L21 7.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm2 2v4h8V5zm5 7a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4z" />
-        </Icon>
-    ),
+    // Embed: </> code brackets.
+    embed: <Icon><path d="M8.6 16.6 4 12l4.6-4.6L7.2 6l-6 6 6 6zm6.8 0L20 12l-4.6-4.6L16.8 6l6 6-6 6z" /></Icon>,
+}
+
+const IS_LOCAL_HOST = ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)
+const escapeAttr = (text: string) => text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+
+/**
+ * Export: an <iframe> of this exact view for other websites (the page URL always
+ * describes what's on screen), plus the current frame as a FITS file from IRSA.
+ * The panel is portalled to <body>, since the playback bar clips what overflows it.
+ */
+function ExportButton({ frame, target }: { frame: SpherexImage | null, target: ViewTarget })
+{
+    const buttonRef = useRef<HTMLButtonElement | null>(null)
+    const panelRef = useRef<HTMLDivElement | null>(null)
+    const [place, setPlace] = useState<{ right: number, bottom: number } | null>(null)
+    const [snippet, setSnippet] = useState('')
+    const [copied, setCopied] = useState(false)
+
+    const open = () =>
+    {
+        const rect = buttonRef.current!.getBoundingClientRect()
+        const sign = target.dec >= 0 ? '+' : ''
+        const title = `Planet X and SPHEREx: SPHEREx images of RA ${target.ra.toFixed(4)}°, Dec ${sign}${target.dec.toFixed(4)}°`
+        // The current view (the page URL always describes it), as just the image, playing.
+        const url = new URL(window.location.href)
+        url.searchParams.set('embed', '1')
+        url.searchParams.set('autoplay', '1')
+        setSnippet(`<iframe src="${escapeAttr(url.href)}" title="${escapeAttr(title)}" `
+            + 'width="960" height="640" style="border:0" loading="lazy" allowfullscreen></iframe>')
+        setCopied(false)
+        setPlace({ right: window.innerWidth - rect.right, bottom: window.innerHeight - rect.top + 8 })
+    }
+    const close = () => setPlace(null)
+
+    // Close on Escape, a click elsewhere, or a resize (the position would be stale).
+    useEffect(() =>
+    {
+        if (!place)
+            return
+        const onKey = (event: globalThis.KeyboardEvent) =>
+        {
+            if (event.key === 'Escape')
+            {
+                close()
+                buttonRef.current?.focus()
+            }
+        }
+        const onDown = (event: PointerEvent) =>
+        {
+            const node = event.target as Node
+            if (!panelRef.current?.contains(node) && !buttonRef.current?.contains(node))
+                close()
+        }
+        window.addEventListener('keydown', onKey)
+        window.addEventListener('pointerdown', onDown)
+        window.addEventListener('resize', close)
+        return () =>
+        {
+            window.removeEventListener('keydown', onKey)
+            window.removeEventListener('pointerdown', onDown)
+            window.removeEventListener('resize', close)
+        }
+    }, [place])
+
+    const copy = async () =>
+    {
+        try
+        {
+            await navigator.clipboard.writeText(snippet)
+            setCopied(true)
+        }
+        catch
+        {
+            // Clipboard blocked (e.g. not a secure context): select the code so Ctrl+C works.
+            panelRef.current?.querySelector('textarea')?.select()
+        }
+    }
+
+    return (
+        <>
+            <button ref={buttonRef} type="button" className={place ? 'pb-button pb-button-on' : 'pb-button'}
+                    onClick={() => (place ? close() : open())}
+                    aria-haspopup="dialog" aria-expanded={!!place}
+                    aria-label="Export: embed this view on another website" title="Export / embed this view">
+                {icons.embed}
+            </button>
+            {place && createPortal(
+                <div ref={panelRef} className="pb-export" role="dialog" aria-label="Export this view" style={place}>
+                    <div className="pb-export-title">Embed this view</div>
+                    <p className="pb-export-hint">
+                        Paste this into any web page to show this view's image, playing through the timeline: same
+                        position, field of view, wavelength and starting frame.
+                    </p>
+                    <textarea className="pb-export-code" readOnly value={snippet} rows={4} spellCheck={false}
+                              onFocus={(event) => event.target.select()} aria-label="Embed code" />
+                    {IS_LOCAL_HOST && (
+                        <p className="pb-export-warning">
+                            This address is on your own computer, so the embed will only work on other sites
+                            once the app is hosted publicly.
+                        </p>
+                    )}
+                    <div className="pb-export-actions">
+                        {frame ? (
+                            <a className="pb-export-link" href={fitsCutoutUrl(frame.access_url, target)} target="_blank" rel="noreferrer">
+                                Download this frame (FITS)
+                            </a>
+                        ) : <span />}
+                        <button type="button" className="pb-export-copy" onClick={copy}>{copied ? 'Copied ✓' : 'Copy code'}</button>
+                    </div>
+                </div>,
+                document.body,
+            )}
+        </>
+    )
 }
 
 // Range limits are shown to 2 decimals, rounded outward (lower limit down, upper limit
@@ -576,14 +688,7 @@ export default function PlaybackPanel({ frames: f, target }: PlaybackPanelProps)
                     </select>
                 </div>
 
-                {frame ? (
-                    <a className="pb-button" href={fitsCutoutUrl(frame.access_url, target)} target="_blank" rel="noreferrer"
-                       aria-label="Download this frame as a FITS file" title="Download this frame as a FITS file">
-                        {icons.save}
-                    </a>
-                ) : (
-                    <span className="pb-button pb-button-disabled" aria-hidden="true">{icons.save}</span>
-                )}
+                <ExportButton frame={frame} target={target} />
             </div>
 
             <div className="pb-status">

@@ -96,10 +96,13 @@ export default function App()
     return (
         <>
             <div className="app">
-                <Header
-                    onLocate={(object) => { setLocated(object); setTarget((t) => ({ ...t, ra: object.ra, dec: object.dec })) }}
-                    onClear={() => setLocated(null)}
-                />
+                {/* Embedded on another site (?embed=1): just the viewport, no app chrome. */}
+                {!fromUrl.embed && (
+                    <Header
+                        onLocate={(object) => { setLocated(object); setTarget((t) => ({ ...t, ra: object.ra, dec: object.dec })) }}
+                        onClear={() => setLocated(null)}
+                    />
+                )}
                 <DefaultLayout
                     target={target}
                     setTarget={setTarget}

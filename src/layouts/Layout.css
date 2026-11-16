@@ -19,6 +19,13 @@
     background: #070b16;
 }
 
+/* ?embed=1: the viewport fills the whole page (an <iframe> on another site). */
+.embed-root {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
 /* Backdrop around the image: a faint dot grid (like a design canvas) over a dark
    navy vignette, so the image's edges are clear and empty space doesn't look broken. */
 .viewport-root {
@@ -74,6 +81,11 @@
     width: 3.5ch;
     color: #94a3b8;
     font-family: var(--sans);
+}
+
+/* The embed's stamp: a little more room for its "Date" label. */
+.viewport-stamp .viewport-cursor-key {
+    width: 4.5ch;
 }
 
 .viewport-cursor-deg {

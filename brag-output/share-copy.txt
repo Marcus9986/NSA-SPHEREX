@@ -1,0 +1,1 @@
+Is there a Planet X? We built a way to look: pick any spot in the sky and see every image NASA's SPHEREx has taken of it, played back over six months and swept from 0.75 to 5 µm of infrared. Our 2026 NASA Space Apps Challenge entry. Go find Planet X.
