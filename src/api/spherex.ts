@@ -3,7 +3,8 @@ import type { Image } from '../renderer/Image';
 // Base URL of the FastAPI backend (src/backend). Override with VITE_API_URL in .env if needed.
 // 127.0.0.1 rather than "localhost": the dev server only listens on IPv4, and on Windows
 // "localhost" tries IPv6 first, which costs up to ~2 s per new connection.
-export const API_URL: string = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000';
+// Production builds use same-origin paths: Vercel routes /api/* to the backend service.
+export const API_URL: string = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '');
 
 export interface SpherexImage
 {
