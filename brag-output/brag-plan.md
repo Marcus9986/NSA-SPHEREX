@@ -20,7 +20,7 @@ Cut: the Difference view. In the captured field nothing moved, so its output is 
 ## Visual identity (from the code)
 
 - Background: the app's viewport backdrop, `#10182a → #0a101e → #05080f` radial with a faint 22 px dot grid.
-- Colours: NASA blue `#0032A0`, NASA red `#E4002B`, accent blue `#60a5fa`, amber `#fbbf24` (gizmo Dec arc), text `#f8fafc`, muted `#94a3b8`.
+- Colours: Brand blue `#2563eb`, brand red `#f43f5e`, accent blue `#60a5fa`, amber `#fbbf24` (gizmo Dec arc), text `#f8fafc`, muted `#94a3b8`.
 - Type: `system-ui / Segoe UI` for headlines; `Consolas` mono for readouts. Eyebrows uppercase with 0.08 em tracking, like the app's section titles.
 - No private data: the UI shows only public sky coordinates and archive IDs.
 

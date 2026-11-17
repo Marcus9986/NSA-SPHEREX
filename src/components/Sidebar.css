@@ -127,7 +127,7 @@
 
 .info-badge-loading { color: #93c5fd; border-color: rgba(96, 165, 250, 0.6); }
 .info-badge-loaded  { color: #86efac; border-color: rgba(134, 239, 172, 0.5); }
-.info-badge-error   { color: #fca5a5; border-color: rgba(228, 0, 43, 0.6); }
+.info-badge-error   { color: #fca5a5; border-color: rgba(244, 63, 94, 0.6); }
 
 .info-status {
     margin: 0;
@@ -138,8 +138,8 @@
     margin: 0;
     padding: 8px;
     border-radius: 6px;
-    background: rgba(228, 0, 43, 0.12);
-    border: var(--border-size) solid rgba(228, 0, 43, 0.5);
+    background: rgba(244, 63, 94, 0.12);
+    border: var(--border-size) solid rgba(244, 63, 94, 0.5);
     color: #fecaca;
     overflow-wrap: anywhere;
 }
@@ -296,7 +296,7 @@
 }
 
 .target-field input[aria-invalid='true'] {
-    border-color: rgba(228, 0, 43, 0.8);
+    border-color: rgba(244, 63, 94, 0.8);
 }
 
 /* One box holding h/m/s (or d/m/s) number fields with small unit labels. */
@@ -318,7 +318,7 @@
 }
 
 .sexagesimal[aria-invalid='true'] {
-    border-color: rgba(228, 0, 43, 0.8);
+    border-color: rgba(244, 63, 94, 0.8);
 }
 
 .sexagesimal-part {

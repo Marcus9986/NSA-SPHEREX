@@ -9,8 +9,8 @@
         --muted: #94a3b8;
         --accent: #60a5fa;
         --amber: #fbbf24;
-        --nasa-red: #E4002B;
-        --nasa-blue: #0032A0;
+        --brand-red: #f43f5e;
+        --brand-blue: #2563eb;
         --sans: 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
         --mono: Consolas, ui-monospace, monospace;
     }
@@ -35,7 +35,7 @@
         font-size: 132px; font-weight: 700; letter-spacing: -0.02em; line-height: 1;
         text-shadow: 0 6px 40px rgba(0, 0, 0, 0.75); }
     #hookText .x { position: relative; display: inline-block; }
-    #hookUnder { position: absolute; left: 0; right: 0; bottom: -18px; height: 8px; border-radius: 4px; background: var(--nasa-red);
+    #hookUnder { position: absolute; left: 0; right: 0; bottom: -18px; height: 8px; border-radius: 4px; background: var(--brand-red);
         transform-origin: left center; }
 
     /* 2 Reveal */
@@ -64,7 +64,7 @@
     .chip.done { color: #cbd5e1; border-color: rgba(96, 165, 250, 0.45); }
     .ticks { display: flex; gap: 8px; margin-top: 26px; }
     .tick { width: 46px; height: 8px; border-radius: 4px; background: rgba(148, 163, 184, 0.25); }
-    .tick.on { background: var(--nasa-red); }
+    .tick.on { background: var(--brand-red); }
     .tick.done { background: rgba(96, 165, 250, 0.75); }
 
     #card { position: absolute; left: 680px; top: 40px; width: 1200px; height: 1000px; transform-origin: 50% 50%;
@@ -79,11 +79,13 @@
 
     /* 6 Outro */
     #outro { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
-    #logo { width: 190px; height: 190px; }
     #outro .eyebrow { margin-top: 26px; }
+    /* Space Apps rules: SI-generated video needs a visible watermark on every frame. */
+    #siMark { position: absolute; right: 28px; bottom: 24px; z-index: 10; padding: 8px 14px; border-radius: 8px;
+        background: rgba(5, 8, 15, 0.72); color: #f8fafc; font: 600 22px/1 system-ui, 'Segoe UI', sans-serif; letter-spacing: 0.04em; }
     #outro .title { font-size: 112px; }
     #punch { margin-top: 34px; font-size: 64px; font-weight: 700; letter-spacing: -0.01em; }
-    #punch span { color: var(--nasa-red); }
+    #punch span { color: var(--brand-red); }
 </style>
 </head>
 <body>
@@ -116,11 +118,11 @@
     </div>
 
     <div class="layer" id="outro">
-        <img id="logo" src="nasa-logo.svg" alt="">
         <div class="eyebrow" id="oEyebrow">2026 NASA Space Apps Challenge</div>
         <div class="title" id="oTitle">Planet X and SPHEREx</div>
         <div id="punch">Go find <span>Planet X.</span></div>
     </div>
+    <div id="siMark">SI-generated video (Claude, Anthropic)</div>
 </div>
 
 <script>
@@ -163,7 +165,7 @@ window.ready = (async () =>
         Promise.all(BANDS.map(([d]) => load(`cap/bands/d${d.slice(1)}.png`))),
         Promise.all(Array.from({ length: 90 }, (_, i) => load(`cap/gizmo/g${pad(i, 3)}.png`))),
     ])
-    await Promise.all([$('appImg').decode(), $('logo').decode(), document.fonts.ready])
+    await Promise.all([$('appImg').decode(), document.fonts.ready])
     IMG = { frames, bands, gizmo }
     return true
 })()
@@ -290,8 +292,6 @@ function render(t)
     $('outro').style.opacity = oOn ? '1' : '0'
     if (oOn)
     {
-        const lg = easeOut(prog(t, CUT.outro + 0.05, 0.6))
-        set($('logo'), lg, `scale(${lerp(0.8, 1, lg).toFixed(4)})`)
         const e = easeOut(prog(t, CUT.outro + 0.25, 0.45)), ti = easeOut(prog(t, CUT.outro + 0.35, 0.5))
         const p = easeOut(prog(t, CUT.outro + 0.75, 0.5))
         set($('oEyebrow'), e, `translateY(${(1 - e) * 24}px)`)

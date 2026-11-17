@@ -114,14 +114,14 @@
 .sg-dec-label { color: #fbbf24; fill: #fbbf24; }
 
 .sg-target {
-    fill: var(--nasa-red);
+    fill: var(--brand-red);
     stroke: #fff;
     stroke-width: 1.2;
 }
 
 .sg-target-back {
     fill: transparent;
-    stroke: var(--nasa-red);
+    stroke: var(--brand-red);
     stroke-dasharray: 2 1.5;
 }
 

@@ -28,13 +28,6 @@
     gap: 10px;
 }
 
-.nasa-logo {
-    width: 26px;
-    height: 26px;
-    object-fit: contain;
-    filter: drop-shadow(0 0 8px rgba(96, 165, 250, 0.3));
-}
-
 .brand-copy {
     display: flex;
     flex-direction: column;
@@ -152,7 +145,7 @@
 }
 
 .header-search-error {
-    border-color: rgba(228, 0, 43, 0.6);
+    border-color: rgba(244, 63, 94, 0.6);
     color: #fecaca;
     font-family: var(--sans);
 }

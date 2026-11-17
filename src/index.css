@@ -14,8 +14,8 @@ body,
     --border-color: rgba(148, 163, 184, 0.4);
     --border-size: 1px;
 
-    --nasa-blue: #0032A0;
-    --nasa-red: #E4002B;
+    --brand-blue: #2563eb;
+    --brand-red: #f43f5e;
 
     --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
     --heading: system-ui, 'Segoe UI', Roboto, sans-serif;

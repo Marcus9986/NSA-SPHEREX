@@ -2,6 +2,7 @@ import json
 import math
 import os
 import random
+import re
 import tempfile
 import threading
 import time
@@ -31,7 +32,12 @@ from scipy.interpolate import RegularGridInterpolator
 # Reading SPHEREx files can exceed astropy's default timeout.
 conf.remote_timeout = 120
 
+# Releases are discovered from IRSA (see _spherex_collections); this list is only used until that first succeeds.
 SPHEREX_COLLECTIONS = ["spherex_dr1", "spherex_qr3"]
+# Plain image releases only: skips derived products like spherex_dr1_cube and spherex_dr1_deep.
+SPHEREX_RELEASE_RE = re.compile(r"spherex_(dr|qr)\d+")
+SPHEREX_COLLECTIONS_MAX_AGE_S = 24 * 3600
+_collections_checked = 0.0
 ALLOWED_IMAGE_HOSTS = {"irsa.ipac.caltech.edu"}
 IMAGE_EXTENSIONS = {"IMAGE", "VARIANCE", "ZODI", "FLAGS"}
 HEADER_KEYWORDS = ["EXTNAME", "BUNIT", "DETECTOR", "OBSID", "DATE", "PSF_FWHM"]
@@ -51,13 +57,52 @@ FLAG_BITS = {
 # Pixels with any of these set are unreliable and would show up as fake
 # changes in a difference image. SOURCE and STREAK are deliberately not here:
 # they mark real objects (a streak could be a fast-moving one).
-DIFF_BAD_FLAGS = sum(
-    FLAG_BITS[n]
-    for n in ("TRANSIENT", "OVERFLOW", "SUR_ERROR", "NONFUNC", "MISSING_DATA",
-              "HOT", "COLD", "PERSIST", "OUTLIER", "SNOWBALL")
-)
+DIFF_BAD_FLAG_NAMES = ("TRANSIENT", "OVERFLOW", "SUR_ERROR", "NONFUNC", "MISSING_DATA",
+                       "HOT", "COLD", "PERSIST", "OUTLIER", "SNOWBALL")
+
+
+def _flag_bits(flags_header: fits.Header) -> dict[str, int]:
+    """Flag name -> bitmask as this file defines it (MSKNnnnn = name of bit nnnn), so a
+    release that renumbers its flags is still read right. FLAG_BITS if the file defines none."""
+    bits = {
+        str(value).strip().upper(): 1 << int(key[4:])
+        for key, value in flags_header.items()
+        if key.startswith("MSKN") and key[4:].isdigit()
+    }
+    return bits or FLAG_BITS
+
+
+def _bad_flag_mask(flag_bits: dict[str, int]) -> int:
+    # A name the file no longer defines is skipped: guessing its bit would mask the wrong pixels.
+    return sum(flag_bits[n] for n in DIFF_BAD_FLAG_NAMES if n in flag_bits)
 
 app = FastAPI(title="Planet X & SPHEREx API")
+
+# Per-IP request cap per minute. Generous because playback preloads many cutouts at once.
+RATE_LIMIT_PER_MIN = int(os.environ.get("RATE_LIMIT_PER_MIN", "600"))
+_rate_window = 0
+_rate_counts: dict[str, int] = {}
+
+
+# Registered before CORS so CORS stays the outer layer and 429s still carry CORS headers.
+@app.middleware("http")
+async def rate_limit(request, call_next):
+    global _rate_window
+    if request.url.path == "/api/health":
+        return await call_next(request)
+    # shortcut: in-memory fixed window, so each serverless instance counts separately; use a shared store (e.g. Upstash Redis) if abuse gets past it.
+    # shortcut: trusts X-Forwarded-For, which Vercel sets itself; behind any other proxy, or exposed directly, clients can spoof it.
+    forwarded = request.headers.get("x-forwarded-for")
+    ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "?")
+    window = int(time.time() // 60)
+    if window != _rate_window:
+        _rate_window = window
+        _rate_counts.clear()
+    _rate_counts[ip] = _rate_counts.get(ip, 0) + 1
+    if _rate_counts[ip] > RATE_LIMIT_PER_MIN:
+        retry = str(60 - int(time.time()) % 60)
+        return Response("Too many requests", status_code=429, headers={"Retry-After": retry})
+    return await call_next(request)
 
 # Allow the Vite dev server to call the API.
 app.add_middleware(
@@ -96,8 +141,30 @@ SEARCH_CACHE_DIR = os.path.join(tempfile.gettempdir(), "spherex-search-cache")
 SEARCH_CACHE_MAX_AGE_S = 24 * 3600
 
 
+def _spherex_collections() -> list[str]:
+    """SPHEREx image releases on IRSA, rechecked daily so new ones (e.g. spherex_dr2) appear on their own."""
+    global SPHEREX_COLLECTIONS, _collections_checked
+    if time.time() - _collections_checked < SPHEREX_COLLECTIONS_MAX_AGE_S:
+        return SPHEREX_COLLECTIONS
+    try:
+        table = Irsa.list_collections(servicetype="SIA", filter="spherex")
+        found = sorted(c for c in map(str, table["collection"]) if SPHEREX_RELEASE_RE.fullmatch(c))
+    except Exception:
+        return SPHEREX_COLLECTIONS  # IRSA unreachable: keep the last known list, retry next search
+    if found:
+        SPHEREX_COLLECTIONS = found
+    _collections_checked = time.time()
+    return SPHEREX_COLLECTIONS
+
+
+def _release_rank(collection: str) -> tuple[bool, int]:
+    """Full data releases (dr) beat quick releases (qr); then the higher number wins."""
+    m = re.fullmatch(r"spherex_(dr|qr)(\d+)", collection)
+    return (m.group(1) == "dr", int(m.group(2))) if m else (False, -1)
+
+
 def _search_cache_path(ra: float, dec: float, radius_arcsec: float) -> str:
-    name = f"{'+'.join(SPHEREX_COLLECTIONS)}_{ra:.7f}_{dec:+.7f}_{radius_arcsec:g}.json"
+    name = f"{'+'.join(_spherex_collections())}_{ra:.7f}_{dec:+.7f}_{radius_arcsec:g}.json"
     return os.path.join(SEARCH_CACHE_DIR, name)
 
 
@@ -147,7 +214,7 @@ def _query_images(ra: float, dec: float, radius_arcsec: float) -> tuple[dict, ..
         try:
             results = Irsa.query_sia(
                 pos=(coord, radius_arcsec * u.arcsec),
-                collection=SPHEREX_COLLECTIONS,
+                collection=_spherex_collections(),
             )
             break
         except Exception as exc:
@@ -181,6 +248,14 @@ def _query_images(ra: float, dec: float, radius_arcsec: float) -> tuple[dict, ..
                 "_s_region": str(row["s_region"]),
             }
         )
+    # A later release can re-publish the same observation. obs_id is per exposure (shared by
+    # its 6 detectors), so dedupe on (obs_id, detector) and keep the newest release.
+    newest: dict[tuple[str, int], dict] = {}
+    for im in images:
+        key = (im["obs_id"], im["detector"])
+        if key not in newest or _release_rank(im["collection"]) > _release_rank(newest[key]["collection"]):
+            newest[key] = im
+    images = list(newest.values())
     images.sort(key=lambda im: (im["mjd_start"], im["detector"]))
     result = tuple(images)
     _write_search_cache(cache_path, result)
@@ -425,6 +500,7 @@ class Cutout:
     exposure_s: float | None
     wavelength_um: float | None
     bandwidth_um: float | None
+    flag_bits: dict[str, int]  # this file's flag name -> bitmask (see _flag_bits)
     path: str  # the cached cutout FITS file
 
 
@@ -599,6 +675,7 @@ def _load_cutout(p: CutoutParams, extra_extensions: tuple[str, ...] = ()) -> Cut
             # The IMAGE header carries the time and wavelength keywords for all planes.
             image_header = hdulist["IMAGE"].header  # type: ignore[union-attr]
             native_wcs = WCS(image_header).celestial
+            flag_bits = _flag_bits(hdulist["FLAGS"].header) if "FLAGS" in wanted else FLAG_BITS  # type: ignore[union-attr]
 
             # Wavelength at the target, from the WCS-WAVE lookup table.
             wavelength_um = bandwidth_um = None
@@ -622,6 +699,7 @@ def _load_cutout(p: CutoutParams, extra_extensions: tuple[str, ...] = ()) -> Cut
         exposure_s=_json_safe(image_header.get("XPOSURE")),
         wavelength_um=wavelength_um,
         bandwidth_um=bandwidth_um,
+        flag_bits=flag_bits,
         path=path,
     )
 
@@ -636,7 +714,7 @@ def _load_cutout(p: CutoutParams, extra_extensions: tuple[str, ...] = ()) -> Cut
                     shape_out=(n, n), order="nearest-neighbor",
                 )
                 flags = np.nan_to_num(aligned, nan=0).astype(np.int64)
-                flags[footprint == 0] |= FLAG_BITS["MISSING_DATA"]
+                flags[footprint == 0] |= flag_bits.get("MISSING_DATA", FLAG_BITS["MISSING_DATA"])
                 planes[name] = flags
             else:
                 aligned, footprint = reproject_interp(
@@ -847,7 +925,8 @@ def _compute_diff(
     covered = np.isfinite(a) & np.isfinite(b) & np.isfinite(va) & np.isfinite(vb) & (va > 0) & (vb > 0)
     valid = covered.copy()
     if mask_flags:
-        bad = (sci.planes["FLAGS"] | ref.planes["FLAGS"]) & DIFF_BAD_FLAGS
+        # Each image's own bit numbers: the two may come from releases that number flags differently.
+        bad = (sci.planes["FLAGS"] & _bad_flag_mask(sci.flag_bits)) | (ref.planes["FLAGS"] & _bad_flag_mask(ref.flag_bits))
         valid &= bad == 0
     if valid.sum() < 25:
         raise HTTPException(status_code=422, detail="The two images have too few usable overlapping pixels")
