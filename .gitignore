@@ -52,3 +52,8 @@ build/
 # Downloaded astronomy data (the backend caches cutouts outside the repo)
 *.fits
 *.fits.gz
+
+# Video build intermediates (frames, captures). Keep the soundtrack and its generator: the README cites them.
+brag-output/work/*
+!brag-output/work/synth.py
+!brag-output/work/audio.wav
