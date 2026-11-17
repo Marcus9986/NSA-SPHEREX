@@ -312,7 +312,6 @@ uses WebGL2 directly.
 | `astropy` | FITS files, WCS, coordinates, time, download cache |
 | `reproject` | Aligning cutouts onto a common north-up grid |
 | `numpy`, `scipy` | Image maths: differencing, statistics, interpolation |
-| `matplotlib`, `firefly-client` | Only used by `src/backend/src/backend/test.py`, not by the server |
 
 **External services** (no accounts or API keys needed)
 
@@ -351,3 +350,7 @@ The science data is not SI-generated. Every image the app shows is real archive 
 - SPHEREx data: NASA / Caltech-IPAC, via IRSA ([image use policy](https://spherex.caltech.edu/page/image-use-policy)).
 - Coastlines: [Natural Earth](https://www.naturalearthdata.com/) (public domain).
 - Solar-system positions: IMCCE SkyBoT. Name resolution: CDS Sesame.
+
+## License
+
+Code: [MIT](LICENSE). SPHEREx and other survey data keep their own terms (see Credits).
