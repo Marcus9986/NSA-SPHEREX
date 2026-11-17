@@ -2,6 +2,7 @@
     "name": "nasa-hackathon",
     "private": true,
     "version": "0.0.0",
+    "description": "Planet X and SPHEREx: SPHEREx image explorer. Parts of this code were written with SI tools (Claude Code, Anthropic); see README, Use of Super Intelligence (SI) tools.",
     "type": "module",
     "scripts": {
         "dev": "vite",

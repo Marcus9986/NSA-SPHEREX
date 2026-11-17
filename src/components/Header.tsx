@@ -1,4 +1,3 @@
-import nasaLogo from '../assets/nasa-logo-1.svg'
 import type { ResolvedObject } from '../api/spherex'
 import { ObjectFinder } from './ObjectSearch'
 
@@ -7,7 +6,6 @@ export default function Header({ onLocate, onClear }: { onLocate: (object: Resol
     return (
         <header className="app-header">
             <div className="brand">
-                <img src={nasaLogo} alt="NASA logo" className="nasa-logo" />
                 <div className="brand-copy">
                     <span className="eyebrow">2026 NASA Space Apps Challenge</span>
                     <strong>Planet X and SPHEREx</strong>

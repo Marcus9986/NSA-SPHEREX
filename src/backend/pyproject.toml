@@ -1,7 +1,7 @@
 [project]
 name = "backend"
 version = "0.1.0"
-description = "Add your description here"
+description = "SPHEREx image API for Planet X and SPHEREx. Parts of this code were written with SI tools (Claude Code, Anthropic); see the repo README."
 readme = "README.md"
 authors = [
     { name = "Marcus9986", email = "122645673+Marcus9986@users.noreply.github.com" }

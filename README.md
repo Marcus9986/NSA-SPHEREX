@@ -333,6 +333,19 @@ uses WebGL2 directly.
 | A new frame takes a few seconds | Each new cutout is a ~4 MB download from IRSA. Frames you've seen, and frames preloaded ahead of the playhead, show instantly. |
 | The Difference view is mostly grey speckle | That's normal when nothing moved: the speckle is noise. Look for black and white pairs, and check them against the Known bodies overlay. |
 
+## Use of Super Intelligence (SI) tools
+
+As the NASA Space Apps Challenge rules require, here is where and how we used SI tools.
+
+| What | SI tool | How it was used | Where it's marked |
+|------|---------|-----------------|-------------------|
+| Code | Claude Code (Anthropic) | Helped write and refactor parts of the frontend (`src/`) and backend (`src/backend/`), plus the deployment config (`vercel.json`). The team designed the app, reviewed the changes and tested them. | This section; `description` in `package.json` and `src/backend/pyproject.toml` |
+| Demo video (`brag-output/brag.mp4`, `brag.jpg`) | Claude Code (Anthropic) | Generated the video: storyboard, motion graphics, edit and render. The app footage in it is a real screen capture of our app. | Visible "SI-generated video" watermark on every frame; `comment` tag in the video file |
+| Music and sound effects (`brag-output/work/audio.wav`) | Claude Code (Anthropic) | Wrote `brag-output/work/synth.py`, which synthesizes the soundtrack. No samples or recordings were used. | This section; `comment` tag in the audio file and the video file |
+| Video text (`brag-output/share-copy.txt`, `brag-plan.md`) | Claude Code (Anthropic) | Drafted the share caption and the video plan. | This section |
+
+The science data is not SI-generated. Every image the app shows is real archive data from IRSA, SkyView and the other sources listed below.
+
 ## Credits
 
 - SPHEREx data: NASA / Caltech-IPAC, via IRSA ([image use policy](https://spherex.caltech.edu/page/image-use-policy)).
